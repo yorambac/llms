@@ -1,0 +1,24 @@
+# Data and checkpoints
+data/
+checkpoints/
+results/
+
+# Logs
+*.log
+__pycache__/
+*.pyc
+*.pyo
+.cache/
+
+# Python
+*.egg-info/
+dist/
+build/
+.venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
