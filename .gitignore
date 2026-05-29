@@ -1,7 +1,9 @@
 # Data and checkpoints
 data/
-checkpoints/
+checkpoints/**/*.pt
 results/
+# Allow important checkpoint metadata
+!checkpoints/important/README.md
 
 # Logs
 *.log

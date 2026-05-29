@@ -1,6 +1,28 @@
 # llm_train
 
-This project is for training a small LLM.
+Training a 0.25B GPT from scratch on a single RTX 4070, then instruction-tuning it with SFT.
+
+## Pipeline Overview
+
+The full process to go from random weights to a chat-capable model:
+
+| Step | Script | What it does | Time |
+|------|--------|-------------|------|
+| 1 | `prepare_data.py` | Download & tokenize FineWeb → `data/train.bin`, `data/val.bin` | ~20 min |
+| 2 | `run_ladders.sh` | LR sweep at 0.01B scale to find best learning rate | ~50 min |
+| 3 | `profile_mfu.py` | Sweep batch/ctx configs to find max MFU on this GPU | ~10 min |
+| 4 | `train_250m.py` | Pretrain 0.25B GPT on 5B tokens (Chinchilla optimal) | ~6.8 days |
+| 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~1.5 h |
+| 6 | `chat_app.py` | Serve the model as a Streamlit chat interface | — |
+
+Monitoring dashboards: `dashboard_app.py` (pretraining) · `sft_dashboard_app.py` (SFT)  
+Dataset explorer: `tutorial/alpaca_explorer.py`
+
+### Checkpoints
+
+Important checkpoints are saved to `checkpoints/important/` — see [`checkpoints/important/README.md`](checkpoints/important/README.md).
+
+---
 
 ## Hardware
 
