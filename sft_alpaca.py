@@ -126,9 +126,10 @@ class GPT(nn.Module):
 # ── Dataset ───────────────────────────────────────────────────────────────────
 
 def build_prompt(instruction, inp):
-    if inp.strip():
-        return f"### Instruction:\n{instruction}\n\n### Input:\n{inp}\n\n### Response:\n"
-    return f"### Instruction:\n{instruction}\n\n### Response:\n"
+    inp = inp.strip()
+    if inp and inp.lower() != "<noinput>":
+        return f"### Instruction:\n{instruction}\n\n### Input:\n{inp}\n\n### Response:"
+    return f"### Instruction:\n{instruction}\n\n### Response:"
 
 class PretrainReplay:
     """Streams random chunks from train.bin for replay during SFT."""
@@ -166,7 +167,7 @@ class AlpacaDataset(torch.utils.data.Dataset):
         skipped = 0
         for ex in rows:
             prompt = build_prompt(ex["instruction"], ex["input"])
-            full   = prompt + ex["output"]
+            full   = prompt + ex["output"].strip()  # strip leading \n from outputs
             prompt_ids = enc.encode(prompt)
             full_ids   = enc.encode(full) + [enc.eot_token]
 
@@ -255,14 +256,16 @@ BLOCK_SIZE   = 1024
 BATCH_SIZE   = 4
 MAX_LR       = 2e-5
 MIN_LR       = 2e-6
-EPOCHS       = 1
+EPOCHS       = 2
 WARMUP_FRAC  = 0.03   # 3% warmup
 CKPT_EVERY        = 200
 VAL_EVERY         = 100
 VAL_BATCHES       = 20
 PRETRAIN_VAL_EVERY   = 500
 PRETRAIN_VAL_BATCHES = 40
-REPLAY_FRAC  = 0.8    # 80% of each batch = random FineWeb chunks (anti-forgetting)
+GEN_EVAL_EVERY       = 500   # generation quality check (% empty responses)
+GEN_EVAL_N           = 30    # number of Alpaca examples to generate on
+REPLAY_FRAC  = 0.6    # 60% of each batch = random FineWeb chunks (anti-forgetting)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -289,6 +292,37 @@ def main():
     replay = PretrainReplay("data/train.bin", BLOCK_SIZE)
     n_replay = max(1, int(BATCH_SIZE * REPLAY_FRAC))  # replay slots per batch
     pretrain_val = PretrainReplay("data/val.bin", BLOCK_SIZE)
+
+    # Fixed set of examples for generation eval (same every time for comparability)
+    ds_full = list(__import__("datasets").load_dataset("tatsu-lab/alpaca", split="train"))
+    cut = int(len(ds_full) * 0.95)
+    gen_eval_examples = ds_full[cut: cut + GEN_EVAL_N]
+
+    def quick_gen_eval(model):
+        # Use the uncompiled model — compiled model is traced with labels and
+        # behaves unpredictably when called without labels for inference.
+        raw = getattr(model, "_orig_mod", model)
+        raw.eval()
+        ok = 0
+        with torch.no_grad():
+            for ex in gen_eval_examples:
+                prompt = build_prompt(ex["instruction"], ex["input"])
+                ids = enc.encode(prompt)
+                idx = torch.tensor([ids], dtype=torch.long, device=device)
+                for _ in range(80):
+                    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+                        logits = raw(idx[:, -BLOCK_SIZE:])
+                    logits = logits[:, -1, :] / 0.7
+                    v, _ = torch.topk(logits, 50)
+                    logits[logits < v[:, [-1]]] = float("-inf")
+                    next_tok = torch.multinomial(F.softmax(logits, dim=-1), 1)
+                    if next_tok.item() == enc.eot_token:
+                        break
+                    idx = torch.cat([idx, next_tok], dim=1)
+                response = enc.decode(idx[0, len(ids):].tolist()).strip()
+                if len(response) >= 10:
+                    ok += 1
+        return ok / len(gen_eval_examples) * 100
 
     # Model — load pretrained weights
     model = GPT().to(device)
@@ -331,6 +365,7 @@ def main():
 
     last_val_loss          = saved_metrics.get("val_loss", float("nan"))
     last_pretrain_val_loss = saved_metrics.get("pretrain_val_loss", float("nan"))
+    last_gen_ok_pct        = saved_metrics.get("gen_ok_pct", float("nan"))
     last_mfu_pct           = saved_metrics.get("mfu_pct", 0.0)
     best_val_loss          = saved_metrics.get("best_val_loss", float("inf"))
     best_ckpt_path         = Path("checkpoints/important") / "sft_alpaca_best.pt"
@@ -341,7 +376,7 @@ def main():
         writer = csv.DictWriter(csvfile, fieldnames=[
             "epoch", "step", "global_step", "total_steps",
             "lr", "train_loss", "val_loss", "pretrain_val_loss",
-            "tokens_per_sec", "mfu_pct", "elapsed_s",
+            "gen_ok_pct", "tokens_per_sec", "mfu_pct", "elapsed_s",
         ])
         if csv_mode == "w":
             writer.writeheader()
@@ -418,6 +453,14 @@ def main():
                         raw = getattr(raw, "_orig_mod", raw)
                         last_mfu_pct = mfu(raw, tps) * 100
 
+                        # Generation quality check (skip step 0 — VRAM not yet warmed up)
+                        if global_step > 0 and global_step % GEN_EVAL_EVERY == 0:
+                            last_gen_ok_pct = quick_gen_eval(model)
+                            torch.cuda.empty_cache()
+                            console.print(f"  [bold {'green' if last_gen_ok_pct > 50 else 'red'}]"
+                                          f"gen_ok={last_gen_ok_pct:.0f}%[/]  "
+                                          f"({'OK' if last_gen_ok_pct > 50 else 'BROKEN — stop?'})")
+
                         # Pretraining perplexity (catastrophic forgetting check)
                         if global_step % PRETRAIN_VAL_EVERY == 0:
                             pt_losses = []
@@ -446,6 +489,7 @@ def main():
                             train_loss=f"{loss.item():.4f}",
                             val_loss=f"{last_val_loss:.4f}",
                             pretrain_val_loss=f"{last_pretrain_val_loss:.4f}",
+                            gen_ok_pct=f"{last_gen_ok_pct:.1f}",
                             tokens_per_sec=f"{tps:.0f}",
                             mfu_pct=f"{last_mfu_pct:.1f}",
                             elapsed_s=f"{time.time()-t_start:.0f}",
@@ -456,6 +500,7 @@ def main():
                         save_checkpoint(CKPT_DIR, epoch + 1, step, model, optimizer, {
                             "val_loss":          last_val_loss,
                             "pretrain_val_loss": last_pretrain_val_loss,
+                            "gen_ok_pct":        last_gen_ok_pct,
                             "best_val_loss":     best_val_loss,
                             "mfu_pct":           last_mfu_pct,
                         })

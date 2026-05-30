@@ -82,11 +82,12 @@ def load_model():
     return model, enc, step, val
 
 def build_prompt(instruction, input_text):
-    if input_text.strip():
+    inp = input_text.strip()
+    if inp and inp.lower() != "<noinput>":
         return (f"### Instruction:\n{instruction}\n\n"
-                f"### Input:\n{input_text}\n\n"
-                f"### Response:\n")
-    return f"### Instruction:\n{instruction}\n\n### Response:\n"
+                f"### Input:\n{inp}\n\n"
+                f"### Response:")
+    return f"### Instruction:\n{instruction}\n\n### Response:"
 
 def generate(model, enc, prompt, max_new_tokens, temperature, top_k):
     ids = enc.encode(prompt)
@@ -114,7 +115,8 @@ st.set_page_config(page_title="0.25B Instruct", page_icon="🤖", layout="wide")
 st.title("🤖 0.25B Instruct · Alpaca SFT")
 
 model, enc, step, val = load_model()
-st.caption(f"Checkpoint: `sft_alpaca_best.pt` · step {step} · val loss {val:.4f if isinstance(val, float) else val} · {DEVICE.upper()}")
+val_str = f"{val:.4f}" if isinstance(val, float) else str(val)
+st.caption(f"Checkpoint: `sft_alpaca_best.pt` · step {step} · val loss {val_str} · {DEVICE.upper()}")
 
 with st.sidebar:
     st.header("Generation")
@@ -139,19 +141,24 @@ with st.sidebar:
 
 # ── Main form ─────────────────────────────────────────────────────────────────
 
+if "instruction" not in st.session_state:
+    st.session_state["instruction"] = ""
+if "input_text" not in st.session_state:
+    st.session_state["input_text"] = ""
+
 col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("Input")
     instruction = st.text_area(
         "Instruction",
-        value=st.session_state.get("instruction", ""),
+        key="instruction",
         height=120,
         placeholder="What do you want the model to do?",
     )
     input_text = st.text_area(
         "Input  *(optional — extra context or data)*",
-        value=st.session_state.get("input_text", ""),
+        key="input_text",
         height=80,
         placeholder="Leave blank if not needed.",
     )
@@ -164,15 +171,17 @@ with col1:
 
 with col2:
     st.subheader("Response")
+    st.write(f"DEBUG — run={run}, instruction='{instruction[:40]}', has_response={'last_response' in st.session_state}")
     if run and instruction.strip():
         prompt = build_prompt(instruction, input_text)
+        st.write(f"DEBUG — generating, prompt length={len(prompt)}")
         with st.spinner("Generating…"):
             response = generate(model, enc, prompt, max_tokens, temperature, top_k)
+        st.write(f"DEBUG — done, response length={len(response)}")
         st.session_state["last_response"] = response
-        st.session_state["instruction"]   = instruction
-        st.session_state["input_text"]    = input_text
 
     if "last_response" in st.session_state:
+        st.write("RAW:", repr(st.session_state["last_response"]))
         st.markdown(st.session_state["last_response"])
         st.caption(f"{len(enc.encode(st.session_state['last_response']))} tokens generated")
     elif not run:

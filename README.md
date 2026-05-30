@@ -34,6 +34,26 @@ Three runs were needed to get SFT right:
 
 Key lessons: 1 epoch is sufficient (format learned in ~1500 steps); 80% FineWeb replay per batch eliminates catastrophic forgetting; always track and save the best checkpoint separately (val loss rises after the minimum).
 
+### Critical bug in Alpaca data + prompt format
+
+Two bugs caused all SFT runs to generate only empty/newline responses:
+
+**Bug 1 — Alpaca outputs have leading `\n`:**  
+Many entries in `tatsu-lab/alpaca` have outputs that begin with `\n` (e.g. `"\n1. First item\n2. Second item"`). After SFT the model learned that `\n` is the dominant first response token (~95–99% probability), then predicted `\n → \n → \n ...` forever. `.strip()` on the generated text yields empty.  
+**Fix:** `ex["output"].strip()` when building training examples.
+
+**Bug 2 — Prompt template ends with `\n`:**  
+The original template `"### Response:\n"` ends with a newline. The model learned that `\n` (end of prompt) → `\n` (start of response) because `\n\n` patterns are extremely common throughout response bodies (lists, paragraphs). Even after fixing Bug 1, the model collapsed to predicting `\n` with 100% probability after `\n`.  
+**Fix:** Remove the trailing newline — use `"### Response:"` (no `\n`). The model now predicts the first word directly after `:`, which has a diverse distribution.
+
+**Bug 3 — `<noinput>` sentinel not filtered:**  
+Some Alpaca examples use `"<noinput>"` as the input field value instead of `""`. The prompt builder treated this as real input, adding `### Input:\n<noinput>\n\n` to the prompt.  
+**Fix:** `if inp and inp.lower() != "<noinput>"` in `build_prompt()`.
+
+These bugs were diagnosed using `debug_sft.py` — a minimal 200-step SFT loop that checks `gen_ok_pct` (% of responses ≥10 chars) every 10 steps, with top-5 token probability logging when broken.
+
+**Final working config:** 2 epochs · 60% FineWeb replay · `output.strip()` · `"### Response:"` (no trailing `\n`) · best-checkpoint tracking.
+
 ---
 
 ## Hardware
