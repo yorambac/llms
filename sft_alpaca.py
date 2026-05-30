@@ -263,7 +263,7 @@ BLOCK_SIZE   = 1024
 BATCH_SIZE   = 4
 MAX_LR       = 2e-5
 MIN_LR       = 2e-6
-EPOCHS       = 1
+EPOCHS       = 4
 WARMUP_FRAC  = 0.03   # 3% warmup
 CKPT_EVERY        = 200
 VAL_EVERY         = 100
@@ -272,7 +272,7 @@ PRETRAIN_VAL_EVERY   = 500
 PRETRAIN_VAL_BATCHES = 40
 GEN_EVAL_EVERY       = 500   # generation quality check (% empty responses)
 GEN_EVAL_N           = 30    # number of Alpaca examples to generate on
-REPLAY_FRAC  = 0.6    # 60% of each batch = random FineWeb chunks (anti-forgetting)
+REPLAY_FRAC  = 0.8    # 80% of each batch = random FineWeb chunks (anti-forgetting)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -312,6 +312,8 @@ def main():
         ("Name the capital of France.", ""),
         ("List three benefits of regular exercise.", ""),
         ("Write a one-sentence definition of gravity.", ""),
+        ("Name the author of Romeo and Juliet.", ""),
+        ("Translate the sentence to French.", "Hello, how are you?"),
     ]
 
     def quick_gen_eval(model, print_samples=False):
@@ -357,8 +359,8 @@ def main():
                             break
                         idx = torch.cat([idx, nxt], dim=1)
                 resp = enc.decode(idx[0, len(ids):].tolist()).strip()[:120]
-                console.print(f"  [cyan]Q:[/] {inst}")
-                console.print(f"  [green]A:[/] {resp}")
+                console.print(f"  ### Instruction: {inst}" + (f"  [Input: {inp}]" if inp else ""))
+                console.print(f"  ### Response:    {resp[:150]}")
 
         return ok / len(gen_eval_examples) * 100
 

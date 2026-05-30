@@ -44,7 +44,13 @@ Three runs were needed to get SFT right:
 | Run 2 | 1 | 30% | +0.14 | 0.255 at step 1,300 |
 | **Run 3** | **1** | **80%** | **±0.06 (noise only)** | **0.314 at step 1,500** |
 
-Key lessons: 1 epoch is sufficient (format learned in ~1500 steps); 80% FineWeb replay per batch eliminates catastrophic forgetting; always track and save the best checkpoint separately (val loss rises after the minimum).
+Key lessons and findings:
+
+- **Root bug**: `make_example` had an off-by-one error — `labels[t] = full_ids[t]` (same position) instead of `full_ids[t+1]` (next token, matching pretraining). Every run before the fix was silently training on wrong targets.
+- **Diagnosis**: 100% FineWeb replay kept the model healthy; 0% replay (pure SFT) also collapsed → proved the SFT training code itself was broken, not the replay fraction.
+- **Format irrelevant**: All the `\n`/`:`/` ` loop issues were symptoms of the broken training corrupting the model, not the prompt format itself.
+- **After fix**: 60% replay, 1 epoch → gen_ok=93–100%, SFT val=2.994, forgetting +0.18. Format works, factual accuracy limited by model size.
+- **Next**: 80% replay, 4 epochs — same effective Alpaca coverage, less forgetting.
 
 ### Critical bug in Alpaca data + prompt format
 

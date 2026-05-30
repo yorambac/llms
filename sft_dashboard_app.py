@@ -19,7 +19,7 @@ CKPT_DIR     = Path("checkpoints/sft_alpaca")
 
 MAX_LR   = 2e-5
 MIN_LR   = 2e-6
-EPOCHS   = 2
+EPOCHS   = 4
 N_TRAIN  = 49402   # ~95% of 52002
 N_PARAMS = 254e6
 

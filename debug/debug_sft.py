@@ -154,8 +154,9 @@ def check_gen(model, step):
         good = len(resp) >= 10 and unique_ratio >= 0.4
         status = "OK" if good else ("REPETITIVE" if len(resp) >= 10 else "EMPTY")
         if good: ok += 1
-        print(f"  [{status}] Q: {inst}", flush=True)
-        print(f"         A: {repr(resp[:100])}", flush=True)
+        print(f"  [{status}]", flush=True)
+        print(f"  ### Instruction: {inst}", flush=True)
+        print(f"  ### Response:    {resp[:120]}", flush=True)
     print(f"  => ok={ok}/{len(PROBE)}", flush=True)
     return ok
 

@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv,noheader,nounits)",
-      "Bash(TORCHINDUCTOR_FX_GRAPH_CACHE=1 TORCHINDUCTOR_CACHE_DIR=__TRACKED_VAR__/.cache/torch/inductor/llm_train PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True /home/yoram/miniconda3/envs/llm_train/bin/python -)"
+      "Bash(TORCHINDUCTOR_FX_GRAPH_CACHE=1 TORCHINDUCTOR_CACHE_DIR=__TRACKED_VAR__/.cache/torch/inductor/llm_train PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True /home/yoram/miniconda3/envs/llm_train/bin/python -)",
+      "Bash(xargs kill -9)",
+      "Bash(kill -9 92179 92261 92262)",
+      "Bash(/home/yoram/miniconda3/envs/llm_train/bin/python debug/debug_sft.py)",
+      "Bash(CUDA_VISIBLE_DEVICES=\"\" /home/yoram/miniconda3/envs/llm_train/bin/python debug/quick_qa.py)",
+      "Bash(awk '{print $2}')",
+      "Bash(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits)",
+      "Bash(/home/yoram/miniconda3/envs/llm_train/bin/python -u debug/debug_sft.py)"
     ]
   }
 }
