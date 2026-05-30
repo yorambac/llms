@@ -12,11 +12,23 @@ The full process to go from random weights to a chat-capable model:
 | 2 | `run_ladders.sh` | LR sweep at 0.01B scale to find best learning rate | ~50 min |
 | 3 | `profile_mfu.py` | Sweep batch/ctx configs to find max MFU on this GPU | ~10 min |
 | 4 | `train_250m.py` | Pretrain 0.25B GPT on 5B tokens (Chinchilla optimal) | ~6.8 days |
-| 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~0.8 h |
+| 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~1.5 h |
 | 6 | `instruct_app.py` | Serve the instruction-tuned model (task + input fields) | — |
 
 Monitoring dashboards: `dashboard_app.py` (pretraining) · `sft_dashboard_app.py` (SFT)  
 Dataset explorer: `tutorial/alpaca_explorer.py`
+
+### Debug / utility scripts (`debug/`)
+
+| Script | Purpose |
+|--------|---------|
+| `debug_sft.py` | Minimal 200-step SFT loop with per-step `gen_ok_pct` checks and top-5 token probability logging. Used to diagnose the Alpaca `\n` collapse bug. |
+| `eval_sft.py` | Evaluates a checkpoint on N Alpaca examples: reports % empty responses, avg word count, shows sample outputs. |
+| `profile_mfu.py` | Sweeps batch × context × architecture configs to find optimal MFU on the GPU. |
+| `profile_dashboard.py` | Terminal dashboard for MFU profiling results. |
+| `dashboard_250m.py` | Terminal (Rich) training dashboard — superseded by `dashboard_app.py` (Streamlit). |
+| `dashboard.py` | Earlier terminal dashboard prototype — superseded. |
+| `chat_app.py` | Base model (pretrained, not instruction-tuned) chat UI — superseded by `instruct_app.py`. |
 
 ### Checkpoints
 

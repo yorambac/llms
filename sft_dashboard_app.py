@@ -19,7 +19,7 @@ CKPT_DIR     = Path("checkpoints/sft_alpaca")
 
 MAX_LR   = 2e-5
 MIN_LR   = 2e-6
-EPOCHS   = 1
+EPOCHS   = 2
 N_TRAIN  = 49402   # ~95% of 52002
 N_PARAMS = 254e6
 
@@ -54,6 +54,7 @@ def load_sft():
     df["train_loss"]        = pd.to_numeric(df["train_loss"],        errors="coerce")
     df["val_loss"]          = pd.to_numeric(df["val_loss"],          errors="coerce")
     df["pretrain_val_loss"] = pd.to_numeric(df.get("pretrain_val_loss", float("nan")), errors="coerce")
+    df["gen_ok_pct"]        = pd.to_numeric(df.get("gen_ok_pct",        float("nan")), errors="coerce")
     return df
 
 @st.cache_data(ttl=3)
@@ -291,6 +292,46 @@ if not df.empty:
         st.caption(f"{colour} Latest FineWeb val: **{pt_latest:.4f}**   "
                    f"Δ from pretrain baseline: **{delta:+.4f}**   "
                    f"({'no forgetting' if delta < 0.05 else 'slight forgetting' if delta < 0.15 else 'forgetting detected'})")
+else:
+    st.info("No data yet.")
+
+st.divider()
+
+# ── Generation quality ────────────────────────────────────────────────────────
+
+st.subheader("Generation Quality · % Non-empty Responses")
+if not df.empty:
+    gen_df = df[df["gen_ok_pct"].notna()].copy()
+    if gen_df.empty:
+        st.info("Generation eval runs every 500 steps — check back soon.")
+    else:
+        fig_gen = go.Figure()
+        fig_gen.add_hline(y=50, line_dash="dot", line_color="rgba(255,100,100,0.5)",
+                          annotation_text="50% threshold", annotation_position="bottom right")
+        fig_gen.add_hline(y=80, line_dash="dot", line_color="rgba(100,255,100,0.5)",
+                          annotation_text="80% good", annotation_position="bottom right")
+        fig_gen.add_trace(go.Scatter(
+            x=gen_df["global_step"], y=gen_df["gen_ok_pct"],
+            mode="lines+markers", name="% ok responses",
+            line=dict(color="#00CC96", width=2.5),
+            marker=dict(size=7),
+        ))
+        for e in range(1, EPOCHS):
+            fig_gen.add_vline(x=e * STEPS_PER_EPOCH, line_dash="dash",
+                              line_color="rgba(255,255,255,0.2)",
+                              annotation_text=f"Epoch {e}")
+        fig_gen.update_layout(
+            xaxis_title="Global step",
+            yaxis_title="% responses ≥10 chars",
+            yaxis=dict(range=[0, 105]),
+            margin=dict(l=40, r=20, t=20, b=40),
+            height=220,
+        )
+        st.plotly_chart(fig_gen, use_container_width=True)
+        latest_ok = gen_df["gen_ok_pct"].iloc[-1]
+        colour = "🟢" if latest_ok >= 80 else "🟡" if latest_ok >= 50 else "🔴"
+        st.caption(f"{colour} Latest: **{latest_ok:.0f}%** non-empty   "
+                   f"({'healthy' if latest_ok >= 80 else 'learning' if latest_ok >= 50 else 'BROKEN — model not generating'})")
 else:
     st.info("No data yet.")
 

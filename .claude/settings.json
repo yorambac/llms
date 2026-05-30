@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv,noheader,nounits)",
+      "Bash(TORCHINDUCTOR_FX_GRAPH_CACHE=1 TORCHINDUCTOR_CACHE_DIR=__TRACKED_VAR__/.cache/torch/inductor/llm_train PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True /home/yoram/miniconda3/envs/llm_train/bin/python -)"
+    ]
+  }
+}
