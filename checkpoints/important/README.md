@@ -41,6 +41,66 @@ model.eval()
 
 ---
 
-## sft_alpaca_*.pt  *(to be added)*
+## sft_alpaca_best.pt  ✓ recommended for inference
 
-Instruction-tuned version of the above, fine-tuned on the Alpaca dataset (52k examples, 3 epochs).
+| Field | Value |
+|-------|-------|
+| **Type** | SFT instruction-tuned model |
+| **Base model** | pretrained_250m_step610000.pt |
+| **Training data** | Alpaca 52k (tatsu-lab/alpaca) |
+| **Best at** | Step 1,500 / 12,351 (epoch 1) |
+| **Best SFT val loss** | 0.314 (response tokens only) |
+| **Final SFT val loss** | 0.378 (overfit — use best, not final) |
+| **Pretrain val loss** | 3.88 ± 0.06 (baseline 3.87 — no forgetting) |
+| **LR schedule** | Cosine, max=2e-5, min=2e-6, 3% warmup |
+| **Batch size** | 4 × 1024, 80% FineWeb replay per batch |
+| **Epochs** | 1 |
+| **Training time** | 0.8 hours |
+
+### Key findings from SFT experiments
+
+Three runs were needed to get this right:
+
+| Run | Epochs | Replay | Result |
+|-----|--------|--------|--------|
+| Run 1 | 3 | 10% | Heavy forgetting (+0.44 pretrain val), severe overfitting (best val at step 1400, then rose to 0.57) |
+| Run 2 | 1 | 30% | Still forgetting (+0.14), overfitting past step 1300 |
+| **Run 3** | **1** | **80%** | **No forgetting (±noise), best val 0.314 at step 1500** |
+
+**Lessons:**
+- 1 epoch is enough — Alpaca format is learned quickly (~1500 steps); more epochs = overfitting
+- 80% FineWeb replay per batch is needed to prevent catastrophic forgetting at this scale
+- Best checkpoint must be tracked separately (val loss rises after step 1500 — never use final weights)
+- Train loss >> val loss is expected: train loss averages 80% FineWeb (~3.8) + 20% Alpaca, val loss is Alpaca-only
+
+### Prompt format
+
+```
+### Instruction:
+{your instruction here}
+
+### Input:
+{optional extra context, or leave blank}
+
+### Response:
+```
+Then let the model complete from `### Response:`.
+
+### Loading
+
+```python
+import torch
+from train_250m import GPT
+
+ckpt = torch.load("checkpoints/important/sft_alpaca_best.pt", map_location="cpu")
+sd = {k.replace("_orig_mod.", ""): v for k, v in ckpt["model"].items()}
+model = GPT()
+model.load_state_dict(sd)
+model.eval()
+```
+
+---
+
+## sft_alpaca_epoch1.pt  (final epoch weights — overfit, not recommended)
+
+Same as above but saved at the end of epoch 1 (step 12,351). Val loss 0.378 vs best 0.314. Use `sft_alpaca_best.pt` instead.

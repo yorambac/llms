@@ -12,8 +12,8 @@ The full process to go from random weights to a chat-capable model:
 | 2 | `run_ladders.sh` | LR sweep at 0.01B scale to find best learning rate | ~50 min |
 | 3 | `profile_mfu.py` | Sweep batch/ctx configs to find max MFU on this GPU | ~10 min |
 | 4 | `train_250m.py` | Pretrain 0.25B GPT on 5B tokens (Chinchilla optimal) | ~6.8 days |
-| 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~1.5 h |
-| 6 | `chat_app.py` | Serve the model as a Streamlit chat interface | — |
+| 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~0.8 h |
+| 6 | `instruct_app.py` | Serve the instruction-tuned model (task + input fields) | — |
 
 Monitoring dashboards: `dashboard_app.py` (pretraining) · `sft_dashboard_app.py` (SFT)  
 Dataset explorer: `tutorial/alpaca_explorer.py`
@@ -21,6 +21,18 @@ Dataset explorer: `tutorial/alpaca_explorer.py`
 ### Checkpoints
 
 Important checkpoints are saved to `checkpoints/important/` — see [`checkpoints/important/README.md`](checkpoints/important/README.md).
+
+### SFT Findings
+
+Three runs were needed to get SFT right:
+
+| Run | Epochs | Replay | Forgetting | Best SFT val |
+|-----|--------|--------|-----------|-------------|
+| Run 1 | 3 | 10% | +0.44 (severe) | 0.265 at step 1,400 — then rose to 0.57 |
+| Run 2 | 1 | 30% | +0.14 | 0.255 at step 1,300 |
+| **Run 3** | **1** | **80%** | **±0.06 (noise only)** | **0.314 at step 1,500** |
+
+Key lessons: 1 epoch is sufficient (format learned in ~1500 steps); 80% FineWeb replay per batch eliminates catastrophic forgetting; always track and save the best checkpoint separately (val loss rises after the minimum).
 
 ---
 

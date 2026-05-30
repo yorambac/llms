@@ -130,6 +130,29 @@ def build_prompt(instruction, inp):
         return f"### Instruction:\n{instruction}\n\n### Input:\n{inp}\n\n### Response:\n"
     return f"### Instruction:\n{instruction}\n\n### Response:\n"
 
+class PretrainReplay:
+    """Streams random chunks from train.bin for replay during SFT."""
+    def __init__(self, path, block_size):
+        if not Path(path).exists():
+            self.data = None
+            console.print("[yellow]Warning: data/train.bin not found — replay disabled")
+            return
+        self.data = np.memmap(path, dtype=np.uint16, mode="r")
+        self.block_size = block_size
+        console.print(f"  Replay buffer: {len(self.data)/1e9:.1f}B tokens from {path}")
+
+    def sample_batch(self, n, device):
+        if self.data is None or n == 0:
+            return None, None
+        idxs = np.random.randint(0, len(self.data) - self.block_size - 1, size=n)
+        xs, ys = [], []
+        for i in idxs:
+            chunk = torch.from_numpy(self.data[i: i + self.block_size + 1].astype(np.int64))
+            xs.append(chunk[:-1])
+            ys.append(chunk[1:])
+        return torch.stack(xs).to(device), torch.stack(ys).to(device)
+
+
 class AlpacaDataset(torch.utils.data.Dataset):
     def __init__(self, enc, block_size, split="train", val_frac=0.05):
         console.print(f"[yellow]Loading Alpaca dataset ({split})…")
@@ -228,15 +251,18 @@ PRETRAINED_CKPT = Path("checkpoints/important/pretrained_250m_step610000.pt")
 CKPT_DIR        = Path("checkpoints/sft_alpaca")
 RESULTS_FILE    = Path("results/sft_alpaca.csv")
 
-BLOCK_SIZE  = 1024
-BATCH_SIZE  = 8
-MAX_LR      = 2e-5
-MIN_LR      = 2e-6
-EPOCHS      = 3
-WARMUP_FRAC = 0.03   # 3% warmup
-CKPT_EVERY  = 500
-VAL_EVERY   = 200
-VAL_BATCHES = 20
+BLOCK_SIZE   = 1024
+BATCH_SIZE   = 4
+MAX_LR       = 2e-5
+MIN_LR       = 2e-6
+EPOCHS       = 1
+WARMUP_FRAC  = 0.03   # 3% warmup
+CKPT_EVERY        = 200
+VAL_EVERY         = 100
+VAL_BATCHES       = 20
+PRETRAIN_VAL_EVERY   = 500
+PRETRAIN_VAL_BATCHES = 40
+REPLAY_FRAC  = 0.8    # 80% of each batch = random FineWeb chunks (anti-forgetting)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -255,13 +281,14 @@ def main():
     val_ds   = AlpacaDataset(enc, BLOCK_SIZE, split="val")
 
     train_loader = torch.utils.data.DataLoader(
-        train_ds, batch_size=BATCH_SIZE, shuffle=True,
-        num_workers=2, pin_memory=True,
+        train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2,
     )
     val_loader = torch.utils.data.DataLoader(
-        val_ds, batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=2, pin_memory=True,
+        val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2,
     )
+    replay = PretrainReplay("data/train.bin", BLOCK_SIZE)
+    n_replay = max(1, int(BATCH_SIZE * REPLAY_FRAC))  # replay slots per batch
+    pretrain_val = PretrainReplay("data/val.bin", BLOCK_SIZE)
 
     # Model — load pretrained weights
     model = GPT().to(device)
@@ -302,15 +329,18 @@ def main():
     RESULTS_FILE.parent.mkdir(exist_ok=True)
     csv_mode = "w" if start_step == 0 else "a"
 
-    last_val_loss = saved_metrics.get("val_loss", float("nan"))
-    last_mfu_pct  = saved_metrics.get("mfu_pct", 0.0)
+    last_val_loss          = saved_metrics.get("val_loss", float("nan"))
+    last_pretrain_val_loss = saved_metrics.get("pretrain_val_loss", float("nan"))
+    last_mfu_pct           = saved_metrics.get("mfu_pct", 0.0)
+    best_val_loss          = saved_metrics.get("best_val_loss", float("inf"))
+    best_ckpt_path         = Path("checkpoints/important") / "sft_alpaca_best.pt"
     t_start = time.time()
     global_step = start_epoch * steps_per_epoch + start_step
 
     with open(RESULTS_FILE, csv_mode, newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=[
             "epoch", "step", "global_step", "total_steps",
-            "lr", "train_loss", "val_loss",
+            "lr", "train_loss", "val_loss", "pretrain_val_loss",
             "tokens_per_sec", "mfu_pct", "elapsed_s",
         ])
         if csv_mode == "w":
@@ -352,6 +382,12 @@ def main():
 
                     x, labels = x.to(device), labels.to(device)
 
+                    # Mix in pretraining replay (replaces last n_replay rows)
+                    rx, ry = replay.sample_batch(n_replay, device)
+                    if rx is not None:
+                        x      = torch.cat([x[:-n_replay],      rx], dim=0)
+                        labels = torch.cat([labels[:-n_replay],  ry], dim=0)
+
                     model.train()
                     t0 = time.perf_counter()
                     with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -365,7 +401,7 @@ def main():
 
                     tps = (BATCH_SIZE * BLOCK_SIZE) / (time.perf_counter() - t0)
 
-                    # Validation
+                    # SFT validation
                     if global_step % VAL_EVERY == 0:
                         model.eval()
                         vlosses = []
@@ -382,11 +418,34 @@ def main():
                         raw = getattr(raw, "_orig_mod", raw)
                         last_mfu_pct = mfu(raw, tps) * 100
 
+                        # Pretraining perplexity (catastrophic forgetting check)
+                        if global_step % PRETRAIN_VAL_EVERY == 0:
+                            pt_losses = []
+                            with torch.no_grad():
+                                for _ in range(PRETRAIN_VAL_BATCHES):
+                                    px, py = pretrain_val.sample_batch(BATCH_SIZE, device)
+                                    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+                                        pl = model(px, py)
+                                    pt_losses.append(pl.item())
+                            last_pretrain_val_loss = sum(pt_losses) / len(pt_losses)
+
+                        # Save best checkpoint (never rotated out)
+                        if last_val_loss < best_val_loss:
+                            best_val_loss = last_val_loss
+                            raw = model.module if hasattr(model, "module") else model
+                            raw = getattr(raw, "_orig_mod", raw)
+                            torch.save({"epoch": epoch+1, "step": step,
+                                        "global_step": global_step,
+                                        "val_loss": best_val_loss,
+                                        "model": raw.state_dict()}, best_ckpt_path)
+                            console.print(f"  [bold green]★ New best val={best_val_loss:.4f} → saved to {best_ckpt_path.name}")
+
                         writer.writerow(dict(
                             epoch=epoch + 1, step=step, global_step=global_step,
                             total_steps=total_steps, lr=f"{lr:.8f}",
                             train_loss=f"{loss.item():.4f}",
                             val_loss=f"{last_val_loss:.4f}",
+                            pretrain_val_loss=f"{last_pretrain_val_loss:.4f}",
                             tokens_per_sec=f"{tps:.0f}",
                             mfu_pct=f"{last_mfu_pct:.1f}",
                             elapsed_s=f"{time.time()-t_start:.0f}",
@@ -395,8 +454,10 @@ def main():
 
                     if global_step > 0 and global_step % CKPT_EVERY == 0:
                         save_checkpoint(CKPT_DIR, epoch + 1, step, model, optimizer, {
-                            "val_loss": last_val_loss,
-                            "mfu_pct":  last_mfu_pct,
+                            "val_loss":          last_val_loss,
+                            "pretrain_val_loss": last_pretrain_val_loss,
+                            "best_val_loss":     best_val_loss,
+                            "mfu_pct":           last_mfu_pct,
                         })
 
                     progress.update(epoch_task, advance=1,

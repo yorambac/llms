@@ -19,11 +19,11 @@ CKPT_DIR     = Path("checkpoints/sft_alpaca")
 
 MAX_LR   = 2e-5
 MIN_LR   = 2e-6
-EPOCHS   = 3
+EPOCHS   = 1
 N_TRAIN  = 49402   # ~95% of 52002
 N_PARAMS = 254e6
 
-BATCH_SIZE  = 8
+BATCH_SIZE  = 4
 BLOCK_SIZE  = 1024
 STEPS_PER_EPOCH = math.ceil(N_TRAIN / BATCH_SIZE)
 TOTAL_STEPS     = STEPS_PER_EPOCH * EPOCHS
@@ -47,9 +47,13 @@ st.markdown("""
 def load_sft():
     if not RESULTS_FILE.exists():
         return pd.DataFrame()
-    df = pd.read_csv(RESULTS_FILE)
-    df["train_loss"] = pd.to_numeric(df["train_loss"], errors="coerce")
-    df["val_loss"]   = pd.to_numeric(df["val_loss"],   errors="coerce")
+    try:
+        df = pd.read_csv(RESULTS_FILE)
+    except Exception:
+        return pd.DataFrame()
+    df["train_loss"]        = pd.to_numeric(df["train_loss"],        errors="coerce")
+    df["val_loss"]          = pd.to_numeric(df["val_loss"],          errors="coerce")
+    df["pretrain_val_loss"] = pd.to_numeric(df.get("pretrain_val_loss", float("nan")), errors="coerce")
     return df
 
 @st.cache_data(ttl=3)
@@ -131,7 +135,7 @@ else:
     p5.metric("MFU",          f"{latest['mfu_pct']}%")
     p6.metric("ETA",          f"{eta_h:.1f} h")
 
-    st.progress(pct / 100)
+    st.progress(min(pct / 100, 1.0))
 
     # Per-epoch progress bars
     for e in range(1, EPOCHS + 1):
@@ -198,9 +202,9 @@ with col_left:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        best_val = val_df["val_loss"].min()
+        best_val   = val_df["val_loss"].min()
         latest_val = val_df["val_loss"].iloc[-1]
-        st.caption(f"Best val: **{best_val:.4f}**   Latest: **{latest_val:.4f}**   "
+        st.caption(f"Best SFT val: **{best_val:.4f}**   Latest: **{latest_val:.4f}**   "
                    f"Δ from start: {latest_val - val_df['val_loss'].iloc[0]:+.4f}")
     else:
         st.info("No data yet.")
@@ -240,6 +244,55 @@ with col_right:
     st.plotly_chart(fig2, use_container_width=True)
     st.caption(f"Max LR: {MAX_LR:.0e}   Min LR: {MIN_LR:.0e}   "
                f"Warmup: {WARMUP_STEPS:,} steps   Epochs: {EPOCHS}")
+
+st.divider()
+
+# ── Catastrophic forgetting ───────────────────────────────────────────────────
+
+st.subheader("Catastrophic Forgetting · FineWeb Val Loss")
+if not df.empty:
+    pt_df = df[df["pretrain_val_loss"].notna()].copy()
+    if pt_df.empty:
+        st.info("FineWeb val eval runs every 1,000 steps — check back soon.")
+    else:
+        smooth_pt = st.slider("Smoothing", 0.0, 0.99, 0.5, 0.01, key="pt_smooth")
+        fig_pt = go.Figure()
+        # Baseline reference line
+        fig_pt.add_hline(y=3.87, line_dash="dot", line_color="rgba(255,255,255,0.4)",
+                         annotation_text="Pretrain baseline (3.87)",
+                         annotation_position="bottom right")
+        fig_pt.add_trace(go.Scatter(
+            x=pt_df["global_step"], y=pt_df["pretrain_val_loss"],
+            mode="lines+markers", name="FineWeb val (raw)",
+            line=dict(color="#FFD700", width=1, dash="dot"), opacity=0.4,
+            marker=dict(size=5),
+        ))
+        fig_pt.add_trace(go.Scatter(
+            x=pt_df["global_step"], y=ema(pt_df["pretrain_val_loss"], smooth_pt),
+            mode="lines+markers", name="FineWeb val (smooth)",
+            line=dict(color="#FFD700", width=2.5),
+            marker=dict(size=7),
+        ))
+        for e in range(1, EPOCHS):
+            fig_pt.add_vline(x=e * STEPS_PER_EPOCH, line_dash="dash",
+                             line_color="rgba(255,255,255,0.2)",
+                             annotation_text=f"Epoch {e}")
+        fig_pt.update_layout(
+            xaxis_title="Global step",
+            yaxis_title="Cross-entropy loss on FineWeb val",
+            legend=dict(x=0.7, y=0.95),
+            margin=dict(l=40, r=20, t=20, b=40),
+            height=260,
+        )
+        st.plotly_chart(fig_pt, use_container_width=True)
+        pt_latest = pt_df["pretrain_val_loss"].iloc[-1]
+        delta = pt_latest - 3.87
+        colour = "🟢" if delta < 0.05 else "🟡" if delta < 0.15 else "🔴"
+        st.caption(f"{colour} Latest FineWeb val: **{pt_latest:.4f}**   "
+                   f"Δ from pretrain baseline: **{delta:+.4f}**   "
+                   f"({'no forgetting' if delta < 0.05 else 'slight forgetting' if delta < 0.15 else 'forgetting detected'})")
+else:
+    st.info("No data yet.")
 
 st.divider()
 
