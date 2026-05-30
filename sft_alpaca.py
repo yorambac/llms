@@ -128,8 +128,8 @@ class GPT(nn.Module):
 def build_prompt(instruction, inp):
     inp = inp.strip()
     if inp and inp.lower() != "<noinput>":
-        return f"### Instruction:\n{instruction}\n\n### Input:\n{inp}\n\n### Response:"
-    return f"### Instruction:\n{instruction}\n\n### Response:"
+        return f"### Instruction:\n{instruction}\n\n### Input:\n{inp}\n\n### Response:\n"
+    return f"### Instruction:\n{instruction}\n\n### Response:\n"
 
 class PretrainReplay:
     """Streams random chunks from train.bin for replay during SFT."""
@@ -167,22 +167,29 @@ class AlpacaDataset(torch.utils.data.Dataset):
         skipped = 0
         for ex in rows:
             prompt = build_prompt(ex["instruction"], ex["input"])
-            full   = prompt + ex["output"].strip()  # strip leading \n from outputs
+            full   = prompt + ex["output"].strip()
             prompt_ids = enc.encode(prompt)
             full_ids   = enc.encode(full) + [enc.eot_token]
 
-            if len(full_ids) > block_size:
+            if len(full_ids) > block_size + 1:
                 skipped += 1
-                full_ids = full_ids[:block_size]
+                full_ids = full_ids[:block_size + 1]
 
-            n_prompt = min(len(prompt_ids), len(full_ids))
-            labels = [-100] * n_prompt + full_ids[n_prompt:]
-            labels = labels[:block_size]
+            # Shift: x=input tokens, y=target tokens (next-token prediction, matches pretraining)
+            x_ids = full_ids[:-1]
+            y_ids = full_ids[1:]
 
-            pad = block_size - len(full_ids)
+            n_prompt = min(len(prompt_ids), len(x_ids))
+            # Mask instruction positions except the last (which predicts first response token)
+            labels = list(y_ids)
+            for i in range(n_prompt - 1):
+                labels[i] = -100
+
+            pad = block_size - len(x_ids)
             if pad > 0:
-                full_ids = full_ids + [0] * pad
-                labels   = labels   + [-100] * pad
+                x_ids  = list(x_ids) + [0] * pad
+                labels = labels + [-100] * pad
+            full_ids = x_ids  # rename for the append below
 
             self.examples.append((
                 torch.tensor(full_ids, dtype=torch.long),
@@ -256,7 +263,7 @@ BLOCK_SIZE   = 1024
 BATCH_SIZE   = 4
 MAX_LR       = 2e-5
 MIN_LR       = 2e-6
-EPOCHS       = 2
+EPOCHS       = 1
 WARMUP_FRAC  = 0.03   # 3% warmup
 CKPT_EVERY        = 200
 VAL_EVERY         = 100
@@ -279,7 +286,8 @@ def main():
     torch.set_float32_matmul_precision("high")
     enc = tiktoken.get_encoding("gpt2")
 
-    # Build datasets
+    # Build datasets (tokenises all examples in memory — takes ~30s first run)
+    console.print("[yellow]Building datasets (tokenising Alpaca ~30s)…[/]")
     train_ds = AlpacaDataset(enc, BLOCK_SIZE, split="train")
     val_ds   = AlpacaDataset(enc, BLOCK_SIZE, split="val")
 
@@ -294,11 +302,19 @@ def main():
     pretrain_val = PretrainReplay("data/val.bin", BLOCK_SIZE)
 
     # Fixed set of examples for generation eval (same every time for comparability)
+    console.print("[yellow]Loading gen-eval examples…[/]")
     ds_full = list(__import__("datasets").load_dataset("tatsu-lab/alpaca", split="train"))
     cut = int(len(ds_full) * 0.95)
     gen_eval_examples = ds_full[cut: cut + GEN_EVAL_N]
 
-    def quick_gen_eval(model):
+    # Fixed easy questions for sanity-checking generation quality in the log
+    PROBE_QUESTIONS = [
+        ("Name the capital of France.", ""),
+        ("List three benefits of regular exercise.", ""),
+        ("Write a one-sentence definition of gravity.", ""),
+    ]
+
+    def quick_gen_eval(model, print_samples=False):
         # Use the uncompiled model — compiled model is traced with labels and
         # behaves unpredictably when called without labels for inference.
         raw = getattr(model, "_orig_mod", model)
@@ -322,6 +338,28 @@ def main():
                 response = enc.decode(idx[0, len(ids):].tolist()).strip()
                 if len(response) >= 10:
                     ok += 1
+
+        if print_samples:
+            console.print("  [dim]── sample responses ──")
+            for inst, inp in PROBE_QUESTIONS:
+                prompt = build_prompt(inst, inp)
+                ids = enc.encode(prompt)
+                idx = torch.tensor([ids], dtype=torch.long, device=device)
+                with torch.no_grad():
+                    for _ in range(60):
+                        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+                            logits = raw(idx[:, -BLOCK_SIZE:])
+                        logits = logits[:, -1, :] / 0.7
+                        v, _ = torch.topk(logits, 50)
+                        logits[logits < v[:, [-1]]] = float("-inf")
+                        nxt = torch.multinomial(F.softmax(logits, dim=-1), 1)
+                        if nxt.item() == enc.eot_token:
+                            break
+                        idx = torch.cat([idx, nxt], dim=1)
+                resp = enc.decode(idx[0, len(ids):].tolist()).strip()[:120]
+                console.print(f"  [cyan]Q:[/] {inst}")
+                console.print(f"  [green]A:[/] {resp}")
+
         return ok / len(gen_eval_examples) * 100
 
     # Model — load pretrained weights
@@ -348,8 +386,10 @@ def main():
         )
 
     if not args.no_compile:
-        console.print("[yellow]Compiling with torch.compile…[/]")
+        console.print("[yellow]Compiling with torch.compile… (2-3 min, cache warm = ~10s)[/]")
+        t_compile = time.time()
         model = torch.compile(model)
+        console.print(f"[yellow]Compile done in {time.time()-t_compile:.0f}s — first step will be slow (kernel load), then full speed[/]")
 
     steps_per_epoch = len(train_loader)
     total_steps     = steps_per_epoch * EPOCHS
@@ -455,7 +495,8 @@ def main():
 
                         # Generation quality check (skip step 0 — VRAM not yet warmed up)
                         if global_step > 0 and global_step % GEN_EVAL_EVERY == 0:
-                            last_gen_ok_pct = quick_gen_eval(model)
+                            show = (global_step % 500 == 0)
+                            last_gen_ok_pct = quick_gen_eval(model, print_samples=show)
                             torch.cuda.empty_cache()
                             console.print(f"  [bold {'green' if last_gen_ok_pct > 50 else 'red'}]"
                                           f"gen_ok={last_gen_ok_pct:.0f}%[/]  "

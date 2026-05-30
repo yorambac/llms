@@ -86,8 +86,8 @@ def build_prompt(instruction, input_text):
     if inp and inp.lower() != "<noinput>":
         return (f"### Instruction:\n{instruction}\n\n"
                 f"### Input:\n{inp}\n\n"
-                f"### Response:")
-    return f"### Instruction:\n{instruction}\n\n### Response:"
+                f"### Response:\n")
+    return f"### Instruction:\n{instruction}\n\n### Response:\n"
 
 def generate(model, enc, prompt, max_new_tokens, temperature, top_k):
     ids = enc.encode(prompt)
@@ -171,17 +171,13 @@ with col1:
 
 with col2:
     st.subheader("Response")
-    st.write(f"DEBUG — run={run}, instruction='{instruction[:40]}', has_response={'last_response' in st.session_state}")
     if run and instruction.strip():
         prompt = build_prompt(instruction, input_text)
-        st.write(f"DEBUG — generating, prompt length={len(prompt)}")
         with st.spinner("Generating…"):
             response = generate(model, enc, prompt, max_tokens, temperature, top_k)
-        st.write(f"DEBUG — done, response length={len(response)}")
         st.session_state["last_response"] = response
 
     if "last_response" in st.session_state:
-        st.write("RAW:", repr(st.session_state["last_response"]))
         st.markdown(st.session_state["last_response"])
         st.caption(f"{len(enc.encode(st.session_state['last_response']))} tokens generated")
     elif not run:

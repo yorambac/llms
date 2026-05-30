@@ -81,8 +81,8 @@ class GPT(nn.Module):
 def build_prompt(instruction, inp):
     inp = inp.strip()
     if inp and inp.lower() != "<noinput>":
-        return f"### Instruction:\n{instruction}\n\n### Input:\n{inp}\n\n### Response:"
-    return f"### Instruction:\n{instruction}\n\n### Response:"
+        return f"### Instruction:\n{instruction}\n\n### Input:\n{inp}\n\n### Response: "
+    return f"### Instruction:\n{instruction}\n\n### Response: "
 
 def generate(model, enc, prompt, max_new_tokens=150, temperature=0.7, top_k=50, device="cuda"):
     ids = enc.encode(prompt)
