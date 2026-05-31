@@ -36,21 +36,22 @@ Important checkpoints are saved to `checkpoints/important/` — see [`checkpoint
 
 ### SFT Findings
 
-Three runs were needed to get SFT right:
+Four runs were needed to get SFT right — two pre-fix (label bug) and two post-fix:
 
 | Run | Epochs | Replay | Forgetting | Best SFT val |
 |-----|--------|--------|-----------|-------------|
-| Run 1 | 3 | 10% | +0.44 (severe) | 0.265 at step 1,400 — then rose to 0.57 |
-| Run 2 | 1 | 30% | +0.14 | 0.255 at step 1,300 |
-| **Run 3** | **1** | **80%** | **±0.06 (noise only)** | **0.314 at step 1,500** |
+| Buggy run 1 | 3 | 10% | +0.44 (severe) | — (off-by-one label bug; results invalid) |
+| Buggy run 2 | 1 | 30% | +0.14 | — (off-by-one label bug; results invalid) |
+| Post-fix run 1 | 1 | 60% | +0.18 | 2.994 at step ~1,500 |
+| **Post-fix run 2** | **4** | **80%** | **−0.02 (zero)** | **2.968 at step 46,700** |
 
 Key lessons and findings:
 
 - **Root bug**: `make_example` had an off-by-one error — `labels[t] = full_ids[t]` (same position) instead of `full_ids[t+1]` (next token, matching pretraining). Every run before the fix was silently training on wrong targets.
 - **Diagnosis**: 100% FineWeb replay kept the model healthy; 0% replay (pure SFT) also collapsed → proved the SFT training code itself was broken, not the replay fraction.
 - **Format irrelevant**: All the `\n`/`:`/` ` loop issues were symptoms of the broken training corrupting the model, not the prompt format itself.
-- **After fix**: 60% replay, 1 epoch → gen_ok=93–100%, SFT val=2.994, forgetting +0.18. Format works, factual accuracy limited by model size.
-- **Next**: 80% replay, 4 epochs — same effective Alpaca coverage, less forgetting.
+- **Post-fix run 1** (60% replay, 1 epoch): gen_ok=93–100%, SFT val=2.994, forgetting +0.18. Format works; some forgetting remains.
+- **Post-fix run 2** (80% replay, 4 epochs): gen_ok=100% throughout all 4 epochs, SFT val=2.968, forgetting −0.02 (pretrain val *improved* slightly). Best checkpoint at step 46,700. Training time: 3.3 h.
 
 ### Critical bug in Alpaca data + prompt format
 
@@ -70,7 +71,7 @@ Some Alpaca examples use `"<noinput>"` as the input field value instead of `""`.
 
 These bugs were diagnosed using `debug_sft.py` — a minimal 200-step SFT loop that checks `gen_ok_pct` (% of responses ≥10 chars) every 10 steps, with top-5 token probability logging when broken.
 
-**Final working config:** 2 epochs · 60% FineWeb replay · `output.strip()` · `"### Response:"` (no trailing `\n`) · best-checkpoint tracking.
+**Final working config:** 4 epochs · 80% FineWeb replay · `output.strip()` · `"### Response:"` (no trailing `\n`) · best-checkpoint tracking.
 
 ---
 

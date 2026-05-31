@@ -41,23 +41,24 @@ model.eval()
 
 ---
 
-## sft_alpaca_best.pt  (run 1 — superseded by run 2, see below)
+## sft_alpaca_best.pt  ✓ recommended for inference (run 2)
 
 | Field | Value |
 |-------|-------|
 | **Type** | SFT instruction-tuned model |
 | **Base model** | pretrained_250m_step610000.pt |
 | **Training data** | Alpaca 52k (tatsu-lab/alpaca) |
-| **Best at** | Step 12,300 / 12,351 (end of epoch 1) |
-| **Best SFT val loss** | 2.994 |
-| **Pretrain val loss** | 3.87 → 4.07 (+0.18 forgetting) |
+| **Run** | Run 2 (supersedes run 1) |
+| **Best at** | Step 46,700 / 49,404 (epoch 4) |
+| **Best SFT val loss** | 2.968 |
+| **Pretrain val loss** | 3.968 → 3.947 (−0.02 — zero forgetting, slight improvement) |
 | **LR schedule** | Cosine, max=2e-5, min=2e-6, 3% warmup |
-| **gen_ok** | 93–100% (follows instruction format) |
-| **Factual accuracy** | Poor — format correct, facts often wrong (0.25B limit) |
-| **Note** | First run with correct label fix. Use run 2 (80% replay) instead. |
-| **Batch size** | 4 × 1024, 80% FineWeb replay per batch |
-| **Epochs** | 1 |
-| **Training time** | 0.8 hours |
+| **Epochs** | 4 |
+| **Replay** | 80% FineWeb per batch |
+| **gen_ok** | 100% throughout all 4 epochs |
+| **Factual accuracy** | Format correct, basic facts sometimes wrong (0.25B knowledge limit) |
+| **Batch size** | 4 × 1024 |
+| **Training time** | 3.3 hours |
 
 ### Key findings from SFT experiments
 
