@@ -11,11 +11,12 @@ The full process to go from random weights to a chat-capable model:
 | 1 | `prepare_data.py` | Download & tokenize FineWeb → `data/train.bin`, `data/val.bin` | ~20 min |
 | 2 | `run_ladders.sh` | LR sweep at 0.01B scale to find best learning rate | ~50 min |
 | 3 | `profile_mfu.py` | Sweep batch/ctx configs to find max MFU on this GPU | ~10 min |
-| 4 | `train_250m.py` | Pretrain 0.25B GPT on 5B tokens (Chinchilla optimal) | ~6.8 days |
+| 4a | `train_250m.py` | Pretrain 0.25B GPT on 5B tokens (Chinchilla optimal) | ~6.8 days |
+| 4b | `train_500m.py` | Pretrain 0.5B GPT on 11.5B tokens (23 TPP) | ~9 days |
 | 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~1.5 h |
 | 6 | `instruct_app.py` | Serve the instruction-tuned model (task + input fields) | — |
 
-Monitoring dashboards: `dashboard_app.py` (pretraining) · `sft_dashboard_app.py` (SFT)  
+Monitoring dashboards: `dashboard_app.py` (0.25B pretraining) · `dashboard_500m_app.py` (0.5B pretraining) · `sft_dashboard_app.py` (SFT)  
 Dataset explorer: `tutorial/alpaca_explorer.py`
 
 ### Debug / utility scripts (`debug/`)
@@ -33,6 +34,36 @@ Dataset explorer: `tutorial/alpaca_explorer.py`
 ### Checkpoints
 
 Important checkpoints are saved to `checkpoints/important/` — see [`checkpoints/important/README.md`](checkpoints/important/README.md).
+
+### 0.5B Pretraining
+
+After completing the 0.25B run, a second pretraining run was planned at 0.5B scale. Key findings from the architecture/MFU search (results: [`results/mfu_profile_500m.csv`](results/mfu_profile_500m.csv)):
+
+- With the desktop running, the true PyTorch VRAM budget is **~10.4 GB** (11.6 GB usable − 1.2 GB desktop)
+- n_embd=1408 (wider matrices) gave **better MFU than n_embd=1024** even at smaller batch, because larger matmuls are more compute-bound
+- The 0.5B config (n_embd=1408, n_layer=18) fit at batch=6 with **9.3 GB** — no gradient checkpointing needed
+- MFU is **38.3%** vs 36.5% for the 0.25B run — wider matrices more than compensate for smaller batch
+
+| Config | Params | Batch | Tok/s | MFU% | VRAM |
+|--------|--------|-------|-------|------|------|
+| 0.25B (n_embd=1024, n_layer=16) | 254M | 8 | 27,944 | 36.5% | 7.87 GB |
+| 0.4B (n_embd=1408, n_layer=14) | 405M | 8 | 18,311 | 38.2% | 9.33 GB |
+| **0.5B (n_embd=1408, n_layer=18)** | **501M** | **6** | **14,879** | **38.3%** | **9.30 GB** |
+
+**Selected config for 0.5B run:**
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| Architecture | n_embd=1408, n_head=22, n_layer=18 | Best MFU at ~0.5B, fits without grad checkpointing |
+| Batch size | 6 | Max that fits at this model size with desktop running |
+| Context length | 1024 | Same as 0.25B run |
+| Learning rate | 1e-3 | Ladder winner, same as 0.25B |
+| TPP | **23** | Slightly above Chinchilla (20) for better convergence |
+| Tokens | **11.5B** | 23 × 501M params |
+| MFU | **~38%** | 14,879 tok/s |
+| Estimated runtime | **~9 days** | 11.5B tokens @ 14.9k tok/s |
+
+---
 
 ### SFT Findings
 
