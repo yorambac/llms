@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -20,13 +21,13 @@ CKPT_DIR      = Path("checkpoints/run_500m")
 
 MAX_LR          = 1e-3
 MIN_LR          = 1e-4
-MAX_TOKENS      = 11_520_000_000
-BATCH_SIZE      = 6
+MAX_TOKENS      = 10_400_000_000
+BATCH_SIZE      = 4
 BLOCK_SIZE      = 1024
 TOKENS_PER_STEP = BATCH_SIZE * BLOCK_SIZE
 TOTAL_STEPS     = MAX_TOKENS // TOKENS_PER_STEP
 WARMUP_STEPS    = TOTAL_STEPS // 100
-N_PARAMS        = 500.5e6
+N_PARAMS        = 452.9e6
 
 st.set_page_config(
     page_title="0.5B training dashboard",
@@ -35,8 +36,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+st_autorefresh(interval=10_000, key="autorefresh")
+
 st.markdown("""
-<meta http-equiv="refresh" content="10">
 <style>
     .block-container { padding-top: 1rem; }
 </style>
@@ -48,7 +50,12 @@ st.markdown("""
 def load_500m():
     if not RESULTS_500M.exists():
         return pd.DataFrame()
-    df = pd.read_csv(RESULTS_500M)
+    try:
+        df = pd.read_csv(RESULTS_500M)
+    except Exception:
+        return pd.DataFrame()
+    if df.empty or "tokens_seen" not in df.columns:
+        return pd.DataFrame()
     df["tokens_seen_b"] = df["tokens_seen"] / 1e9
     return df
 
@@ -115,7 +122,7 @@ st.divider()
 
 # ── Training progress row ──────────────────────────────────────────────────────
 
-st.subheader("Training Progress · 0.5B run  (23 TPP · 11.5B tokens · ~9 days)")
+st.subheader("Training Progress · 0.45B run  (23 TPP · 10.4B tokens · ~8 days)")
 
 if df.empty:
     st.info("Waiting for training to start… (results/run_500m.csv not found)")
@@ -131,7 +138,7 @@ else:
     p1, p2, p3, p4, p5, p6 = st.columns(6)
     p1.metric("Progress",        f"{pct:.1f}%")
     p2.metric("Step",            f"{step:,} / {TOTAL_STEPS:,}")
-    p3.metric("Tokens seen",     f"{tokens_b:.2f}B / 11.5B")
+    p3.metric("Tokens seen",     f"{tokens_b:.2f}B / 10.4B")
     p4.metric("Tok/param (TPP)", f"{tpp:.1f}x  (target=23)")
     p5.metric("Throughput",      f"{tps:,.0f} tok/s")
     p6.metric("ETA",             f"{eta_h:.1f} h")
@@ -151,7 +158,21 @@ with col_left:
     st.subheader("Loss Curves")
     if not df.empty:
         val_df = df[df["val_loss"].notna()].copy()
-        smooth = st.slider("Smoothing (EMA α)", 0.0, 0.99, 0.9, 0.01, key="loss_smooth")
+
+        sc, mn, mx = st.columns([3, 1, 1])
+        smooth   = sc.slider("Smoothing (EMA α)", 0.0, 0.99, 0.9, 0.01, key="loss_smooth")
+        ymin_str = mn.text_input("Y min", key="ymin", placeholder="auto")
+        ymax_str = mx.text_input("Y max", key="ymax", placeholder="auto")
+
+        # Parse optional y-axis range
+        yrange = None
+        try:
+            ylo = float(ymin_str) if ymin_str else None
+            yhi = float(ymax_str) if ymax_str else None
+            if ylo is not None or yhi is not None:
+                yrange = [ylo, yhi]
+        except ValueError:
+            pass
 
         def ema(series, alpha):
             return series.ewm(alpha=1 - alpha, adjust=False).mean() if alpha > 0 else series
@@ -187,7 +208,7 @@ with col_left:
             ))
         fig.update_layout(
             xaxis_title="Tokens seen (B)",
-            yaxis_title="Cross-entropy loss",
+            yaxis=dict(title="Cross-entropy loss", range=yrange),
             legend=dict(x=0.55, y=0.95),
             margin=dict(l=40, r=20, t=20, b=40),
             height=350,

@@ -1,6 +1,6 @@
 """
-0.5B GPT pretraining on FineWeb.
-Config: n_embd=1408, n_head=22, n_layer=18, batch=6, ctx=1024, lr=1e-3
+0.45B GPT pretraining on FineWeb.
+Config: n_embd=1408, n_head=22, n_layer=16, batch=5, ctx=1024, lr=1e-3
 
 Usage:
   python -u train_500m.py
@@ -72,7 +72,7 @@ class Block(nn.Module):
 
 class GPT(nn.Module):
     def __init__(self, vocab_size=50257, n_embd=1408, n_head=22,
-                 n_layer=18, block_size=1024):
+                 n_layer=16, block_size=1024):
         super().__init__()
         self.block_size = block_size
         self.wte  = nn.Embedding(vocab_size, n_embd)
@@ -178,11 +178,11 @@ def load_latest_checkpoint(ckpt_dir, model, optimizer, device):
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
-BATCH_SIZE   = 6
+BATCH_SIZE   = 4
 BLOCK_SIZE   = 1024
 MAX_LR       = 1e-3
 MIN_LR       = 1e-4
-MAX_TOKENS   = 11_520_000_000   # 23 TPP × ~0.5B params = ~11.5B tokens (~9 days)
+MAX_TOKENS   = 10_400_000_000   # 23 TPP × 452.9M params = ~10.4B tokens (~8 days)
 CKPT_EVERY   = 1000
 VAL_EVERY    = 500
 VAL_STEPS    = 20
@@ -201,7 +201,7 @@ def main():
     torch.set_float32_matmul_precision("high")
 
     model = GPT().to(device)
-    console.print(f"[bold cyan]0.5B GPT — {model.num_params()/1e6:.1f}M params[/]")
+    console.print(f"[bold cyan]0.45B GPT — {model.num_params()/1e6:.1f}M params[/]")
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=MAX_LR,
@@ -219,6 +219,9 @@ def main():
 
     if not args.no_compile:
         console.print("[yellow]Compiling with torch.compile (this takes ~1 min)...[/]")
+        import torch._inductor.config as inductor_cfg
+        inductor_cfg.max_autotune = False
+        inductor_cfg.max_autotune_gemm = False
         model = torch.compile(model)
 
     tokens_per_step = BATCH_SIZE * BLOCK_SIZE
