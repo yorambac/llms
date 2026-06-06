@@ -30,6 +30,7 @@ rm -f "$RESULTS"
 for LR in 7e-4 1e-3 1.3e-3 1.7e-3 2.3e-3; do
     RUN_NAME="lr${LR}"
     echo "--- $RUN_NAME ---"
+    rm -rf "checkpoints/${RUN_NAME}"   # always start fresh, never resume
     $PYTHON train.py \
         --lr          "$LR" \
         --run_name    "$RUN_NAME" \
