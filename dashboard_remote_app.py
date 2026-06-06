@@ -65,7 +65,7 @@ st.markdown("<style>.block-container { padding-top: 1rem; }</style>",
 def fetch_csv():
     try:
         out = subprocess.check_output(
-            SSH_BASE + [f"cat {REMOTE_DIR}/results/run_h200.csv"],
+            SSH_BASE + [f"cat {REMOTE_DIR}/results/run_h100.csv"],
             text=True, timeout=8,
         )
         df = pd.read_csv(io.StringIO(out))
@@ -96,7 +96,7 @@ def fetch_gpu():
 def fetch_latest_ckpt():
     try:
         out = subprocess.check_output(
-            SSH_BASE + [f"ls {REMOTE_DIR}/checkpoints/run_h200/ 2>/dev/null | tail -1"],
+            SSH_BASE + [f"ls {REMOTE_DIR}/checkpoints/run_h100/ 2>/dev/null | tail -1"],
             text=True, timeout=8,
         ).strip()
         return out or "none"
@@ -116,7 +116,7 @@ def cosine_lr_curve():
 
 # ── Layout ──────────────────────────────────────────────────────────────────
 
-st.title("🛰 REMOTE · H200 · 0.45B Training Dashboard")
+st.title("🛰 REMOTE · H100 SXM · 0.45B Training Dashboard")
 st.caption(f"Pod: {SSH_USER}@{SSH_HOST}:{SSH_PORT}  ·  Auto-refreshes every 15s")
 
 df = fetch_csv()
@@ -124,7 +124,7 @@ g  = fetch_gpu()
 
 # ── GPU row ─────────────────────────────────────────────────────────────────
 
-st.subheader("GPU · H200 SXM (140 GB)")
+st.subheader("GPU · H100 SXM (80 GB)")
 c1, c2, c3, c4, c5 = st.columns(5)
 if g:
     c1.metric("Utilisation", f"{g['util']}%")
