@@ -77,8 +77,9 @@ Sharp peak at 2.3e-3. Curve descends from 7e-4 to 2.3e-3 then shoots back up —
 
 - [x] Coarse MFU sweep complete (b ∈ {8,16,32,64,128}, ctx ∈ {1024,2048})
 - [x] Fine MFU sweep complete (b ∈ {40,48,56}): optimal **b=48**, 160,756 tok/s
-- [x] LR ladder complete: optimal **lr=2.3e-3** at batch=48
-- [ ] Update train_500m.py with batch=48, lr=2.3e-3
+- [x] LR ladder complete: optimal **lr=2.3e-3** at batch=48 (confirmed across multiple sweeps)
+- [x] train_500m.py updated with CLI overrides (local defaults preserved for ongoing local run)
+- [x] Remote dashboard created: `dashboard_remote_app.py` — run locally, fetches from pod via SSH
 - [ ] Launch 0.5B pretraining on H200
 
 ---

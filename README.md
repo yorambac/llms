@@ -46,20 +46,28 @@ cat results/ladder_h200_results.csv
 
 ## Current Step
 
-**Ready to launch 0.5B pretraining on H200** (as of 2026-06-06)
+**0.5B pretraining running on H200** (as of 2026-06-06)
 
-MFU sweep and LR ladder complete:
+MFU sweep + LR ladder complete. Confirmed config:
 - **Batch: 48**, ctx=1024 — 160,756 tok/s, 22.1% MFU
-- **LR: 2.3e-3** — sharp peak in ladder [7e-4 … 4e-3], drops off quickly above/below
+- **LR: 2.3e-3** — consistent winner across multiple sweeps; noise-robust
 
-Next: update `train_500m.py` with these values and launch:
-
+Launch command used:
 ```bash
-# On pod
-cd /llms && git pull
-# Edit train_500m.py: BATCH_SIZE=48, LR=2.3e-3
-nohup python -u train_500m.py > /tmp/train_500m.log 2>&1 &
-tail -f /tmp/train_500m.log
+cd /llms
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+TORCHINDUCTOR_FX_GRAPH_CACHE=1 \
+nohup python -u train_500m.py --batch_size 48 --lr 2.3e-3 > /tmp/train_500m.log 2>&1 &
+```
+
+Monitor locally with the remote dashboard:
+```bash
+streamlit run dashboard_remote_app.py --server.port 8503
+```
+
+Check live log:
+```bash
+ssh root@157.66.255.19 -p 17530 -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.log"
 ```
 
 ---
@@ -78,7 +86,7 @@ The full process to go from random weights to a chat-capable model:
 | 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~1.5 h |
 | 6 | `instruct_app.py` | Serve the instruction-tuned model (task + input fields) | — |
 
-Monitoring dashboards: `dashboard_app.py` (0.25B pretraining) · `dashboard_500m_app.py` (0.5B pretraining) · `sft_dashboard_app.py` (SFT)  
+Monitoring dashboards: `dashboard_app.py` (0.25B pretraining) · `dashboard_500m_app.py` (0.5B local run) · `sft_dashboard_app.py` (SFT) · `dashboard_remote_app.py` (H200 remote run — fetches live data from pod via SSH)  
 Dataset explorer: `tutorial/alpaca_explorer.py`
 
 ### Debug / utility scripts (`debug/`)

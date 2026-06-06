@@ -182,7 +182,7 @@ BATCH_SIZE   = 4
 BLOCK_SIZE   = 1024
 MAX_LR       = 1e-3
 MIN_LR       = 1e-4
-MAX_TOKENS   = 10_400_000_000   # 23 TPP × 452.9M params = ~10.4B tokens (~8 days)
+MAX_TOKENS   = 10_400_000_000   # 23 TPP × 452.9M params = ~10.4B tokens
 CKPT_EVERY   = 1000
 VAL_EVERY    = 500
 VAL_STEPS    = 20
@@ -195,16 +195,23 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true", default=True)
     parser.add_argument("--no_compile", action="store_true")
+    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--lr", type=float, default=MAX_LR)
     args = parser.parse_args()
+
+    batch_size = args.batch_size
+    max_lr     = args.lr
+    min_lr     = max_lr / 10
 
     device = "cuda"
     torch.set_float32_matmul_precision("high")
 
     model = GPT().to(device)
     console.print(f"[bold cyan]0.45B GPT — {model.num_params()/1e6:.1f}M params[/]")
+    console.print(f"[cyan]batch={batch_size}  lr={max_lr:.2e}[/]")
 
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=MAX_LR,
+        model.parameters(), lr=max_lr,
         betas=(0.9, 0.95), weight_decay=0.1,
         fused=True,
     )
@@ -224,7 +231,7 @@ def main():
         inductor_cfg.max_autotune_gemm = False
         model = torch.compile(model)
 
-    tokens_per_step = BATCH_SIZE * BLOCK_SIZE
+    tokens_per_step = batch_size * BLOCK_SIZE
     total_steps     = MAX_TOKENS // tokens_per_step
     warmup_steps    = total_steps // 100
 
@@ -271,18 +278,18 @@ def main():
         ) as progress:
             task = progress.add_task(
                 "0.5B", total=total_steps, completed=start_step,
-                lr=MAX_LR, loss=float("nan"),
+                lr=max_lr, loss=float("nan"),
                 val=last_val_loss, mfu=last_mfu_pct, tps="---",
             )
 
             for step in range(start_step, total_steps + 1):
-                lr = cosine_lr(step, MAX_LR, MIN_LR, warmup_steps, total_steps)
+                lr = cosine_lr(step, max_lr, min_lr, warmup_steps, total_steps)
                 for pg in optimizer.param_groups:
                     pg["lr"] = lr
 
                 model.train()
                 t0 = time.perf_counter()
-                x, y = train_data.next_batch(BATCH_SIZE, device)
+                x, y = train_data.next_batch(batch_size, device)
 
                 with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
                     loss = model(x, y)
@@ -302,7 +309,7 @@ def main():
                     vlosses = []
                     with torch.no_grad():
                         for _ in range(VAL_STEPS):
-                            vx, vy = val_data.next_batch(BATCH_SIZE, device)
+                            vx, vy = val_data.next_batch(batch_size, device)
                             with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
                                 vl = model(vx, vy)
                             vlosses.append(vl.item())
