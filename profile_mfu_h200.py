@@ -78,7 +78,7 @@ class GPT(nn.Module):
 
 ARCH = dict(n_embd=1408, n_head=22, n_layer=16, label="1408-16L")  # 0.45B
 
-BATCH_SIZES  = [40, 48, 56]
+BATCH_SIZES  = [40, 48, 56, 64]
 BLOCK_SIZES  = [1024]
 
 VOCAB_SIZE   = 50257
