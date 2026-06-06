@@ -59,16 +59,15 @@ nohup python -u train_500m.py --batch_size <N> --lr 2.3e-3 --peak_tflops 989 \
 
 **0.5B pretraining running on H100 SXM** (as of 2026-06-06)
 
-MFU sweep complete — H100 optimal batch is **40** (157,017 tok/s). Plateau shifts left vs H200 (less memory bandwidth). Training launched fresh from step 0.
-
-| Setting | Value |
-|---------|-------|
-| Batch | 40 |
-| LR | 2.3e-3 |
-| Total tokens | 10.4B (253,906 steps) |
-| Est. throughput | ~157k tok/s |
-| Est. runtime | ~18h |
-| Est. cost | ~$59 |
+| Setting | Value | Based on |
+|---------|-------|----------|
+| **Batch** | **40** | H100 MFU sweep [40,48,56,64] — batch=40 wins at 157,017 tok/s |
+| **LR** | **2.3e-3** | ⚠️ LR ladder was run at batch=48 on H200, not batch=40. Linear scaling (×40/48) suggests ~1.9e-3 might be more optimal. Accepted risk to avoid re-sweep. |
+| **MFU** | ~44% | Against H100 dense bf16 peak (989 TFLOPS) |
+| **Total tokens** | 10.4B (253,906 steps) | 23 TPP × 452.9M params |
+| **Est. throughput** | ~157k tok/s | H100 MFU sweep |
+| **Est. runtime** | ~18h | 10.4B / 157k tok/s |
+| **Est. cost** | ~$59 | 18h × $3.29/hr |
 
 Monitor locally:
 ```bash
