@@ -54,28 +54,44 @@ nohup python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 \
 
 ## Current Step
 
-**0.5B pretraining running on H100 SXM** (as of 2026-06-06)
+**Two hero runs active** (as of 2026-06-06)
 
-All sweeps complete. Config fully validated on H100:
+### Remote — H100 SXM (middle_plum_parrotfish)
 
-| Setting | Value | Based on |
-|---------|-------|----------|
-| **Batch** | **40** | H100 MFU sweep [40,48,56,64] — batch=40 wins at 157,017 tok/s |
-| **LR** | **1.9e-3** | H100 LR ladder at batch=40: tied 1.5e-3≈1.9e-3 (Δ0.0002), picked 1.9e-3 (linear scaling prediction). 2.3e-3 clearly too high (Δ0.18). |
-| **MFU** | ~44% | Against H100 dense bf16 peak (989 TFLOPS) |
-| **Total tokens** | 10.4B (253,906 steps) | 23 TPP × 452.9M params |
-| **Est. throughput** | ~157k tok/s | H100 MFU sweep |
-| **Est. runtime** | ~18h | 10.4B / 157k tok/s |
-| **Est. cost** | ~$59 | 18h × $3.29/hr |
+Step ~3,000 / 253,906 · val loss 4.52 · 158k tok/s · 43% MFU · ETA ~18h · ~$59 total
 
-Monitor locally:
+| Setting | Value |
+|---------|-------|
+| Batch / LR | 40 / 1.9e-3 (validated by H100 MFU + LR sweeps) |
+| Total tokens | 10.4B — 253,906 steps |
+| Checkpoint dir | `checkpoints/run_h100` |
+| Results CSV | `results/run_h100.csv` (on pod) |
+
+### Local — RTX 4070
+
+Step ~635,000 / 2,539,062 · **25% done** · val loss ~4.7 · 13k tok/s · elapsed ~45h · ETA ~7 days
+
+| Setting | Value |
+|---------|-------|
+| Batch / LR | 4 / 1e-3 (local defaults) |
+| Total tokens | 10.4B — 2,539,062 steps |
+| Checkpoint dir | `checkpoints/run_500m` |
+| Results CSV | `results/run_500m.csv` |
+
+### Dashboards
+
 ```bash
+# Local run (RTX 4070) — http://localhost:8502
+/home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_500m_app.py --server.port 8502
+
+# Remote run (H100) — http://localhost:8503
 /home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_remote_app.py --server.port 8503
-# → http://localhost:8503
 ```
 
-Check log:
+Both dashboards can run simultaneously. The remote one fetches data via SSH every 15s — no action needed on the pod.
+
 ```bash
+# Live log from H100 pod
 ssh root@64.247.201.60 -p 12801 -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.log"
 ```
 
