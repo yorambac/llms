@@ -65,7 +65,7 @@ st.markdown("<style>.block-container { padding-top: 1rem; }</style>",
 def fetch_csv():
     try:
         out = subprocess.check_output(
-            SSH_BASE + [f"cat {REMOTE_DIR}/results/run_500m.csv"],
+            SSH_BASE + [f"cat {REMOTE_DIR}/results/run_h200.csv"],
             text=True, timeout=8,
         )
         df = pd.read_csv(io.StringIO(out))
@@ -96,7 +96,7 @@ def fetch_gpu():
 def fetch_latest_ckpt():
     try:
         out = subprocess.check_output(
-            SSH_BASE + [f"ls {REMOTE_DIR}/checkpoints/run_500m/ 2>/dev/null | tail -1"],
+            SSH_BASE + [f"ls {REMOTE_DIR}/checkpoints/run_h200/ 2>/dev/null | tail -1"],
             text=True, timeout=8,
         ).strip()
         return out or "none"

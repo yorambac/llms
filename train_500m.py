@@ -197,11 +197,15 @@ def main():
     parser.add_argument("--no_compile", action="store_true")
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=MAX_LR)
+    parser.add_argument("--ckpt_dir", type=str, default=None)
+    parser.add_argument("--results_file", type=str, default=None)
     args = parser.parse_args()
 
-    batch_size = args.batch_size
-    max_lr     = args.lr
-    min_lr     = max_lr / 10
+    batch_size   = args.batch_size
+    max_lr       = args.lr
+    min_lr       = max_lr / 10
+    ckpt_dir     = Path(args.ckpt_dir) if args.ckpt_dir else CKPT_DIR
+    results_file = Path(args.results_file) if args.results_file else RESULTS_FILE
 
     device = "cuda"
     torch.set_float32_matmul_precision("high")
@@ -221,7 +225,7 @@ def main():
 
     if args.resume:
         start_step, saved_metrics = load_latest_checkpoint(
-            CKPT_DIR, model, optimizer, device
+            ckpt_dir, model, optimizer, device
         )
 
     if not args.no_compile:
@@ -244,7 +248,8 @@ def main():
     if start_step > 0:
         train_data.pos = (start_step * tokens_per_step) % len(train_data.data)
 
-    RESULTS_FILE.parent.mkdir(exist_ok=True)
+    results_file.parent.mkdir(exist_ok=True)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
     csv_mode = "w" if start_step == 0 else "a"
 
     last_val_loss = saved_metrics.get("val_loss", float("nan"))
@@ -253,7 +258,7 @@ def main():
     t_start       = time.time()
     tokens_seen   = start_step * tokens_per_step
 
-    with open(RESULTS_FILE, csv_mode, newline="") as csvfile:
+    with open(results_file, csv_mode, newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=[
             "step", "total_steps", "tokens_seen", "lr",
             "train_loss", "val_loss", "tokens_per_sec", "mfu_pct", "elapsed_s",
@@ -330,7 +335,7 @@ def main():
                     csvfile.flush()
 
                 if step > 0 and step % CKPT_EVERY == 0:
-                    save_checkpoint(CKPT_DIR, step, model, optimizer, {
+                    save_checkpoint(ckpt_dir, step, model, optimizer, {
                         "val_loss": last_val_loss,
                         "mfu_pct":  last_mfu_pct,
                         "tps":      last_tps,
