@@ -79,9 +79,10 @@ def main():
 
     last_print = t0
 
+    import sys
     with tqdm(total=TOTAL_TARGET, unit="tok", unit_scale=True,
               desc="Tokenising FineWeb", dynamic_ncols=True,
-              initial=already_done) as pbar:
+              initial=already_done, file=sys.stderr) as pbar:
         for doc in ds:
             ids = enc.encode_ordinary(doc["text"])
             ids.append(eot)
