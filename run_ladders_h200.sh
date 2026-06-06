@@ -1,38 +1,33 @@
 #!/usr/bin/env bash
-# LR ladder sweep on H200, optimised for the 0.45B training config.
+# LR ladder sweep on H200, tuned for batch=48 (MFU-optimal config).
 #
 # Changes vs original run_ladders.sh:
-#   - 7 LR values (wider + finer sweep around expected optimal)
-#   - 1B tokens per run (5× more than original 200M → cleaner signal)
-#   - batch=64, ctx=1024 (set after MFU profiling — change if profiler says different)
-#   - Min LR = max_lr / 10 (cosine decay, same ratio as full run)
+#   - 5 LRs centered around 1.3e-3 (linear scale from batch=32 winner lr=1e-3)
+#   - 200M tokens per run (~1.25 min each on H200, same as original local ladder)
+#   - batch=48, ctx=1024 (MFU-optimal from H200 fine-sweep)
 #   - Results in results/ladder_h200_results.csv
-#
-# Usage:
-#   bash run_ladders_h200.sh              # uses default BATCH=64
-#   BATCH=128 bash run_ladders_h200.sh   # override batch after profiling
 
 set -e
 cd "$(dirname "$0")"
 
 PYTHON=python
-BATCH=${BATCH:-96}
+BATCH=${BATCH:-48}
 CTX=1024
-MAX_TOKENS=400_000_000     # 400M tokens per run (~2 min each on H200)
+MAX_TOKENS=200_000_000     # 200M tokens per run (~1.25 min on H200)
 RESULTS=results/ladder_h200_results.csv
 
 export TORCHINDUCTOR_FX_GRAPH_CACHE=1
 
 echo "=== H200 LR ladder sweep ==="
 echo "    batch=$BATCH  ctx=$CTX  tokens_per_run=$MAX_TOKENS"
-echo "    LRs: [8e-4, 1.2e-3, 1.7e-3, 2.3e-3, 3e-3]"
-echo "    (centered around expected optimal ~1.7e-3 from sqrt(96/32) scaling)"
+echo "    LRs: [7e-4, 1e-3, 1.3e-3, 1.7e-3, 2.3e-3]"
+echo "    (centered around 1.3e-3 = lr=1e-3 × 48/32 linear scaling from batch=32 winner)"
 echo ""
 
 # Wipe old results so we get a clean CSV
 rm -f "$RESULTS"
 
-for LR in 8e-4 1.2e-3 1.7e-3 2.3e-3 3e-3; do
+for LR in 7e-4 1e-3 1.3e-3 1.7e-3 2.3e-3; do
     RUN_NAME="lr${LR}"
     echo "--- $RUN_NAME ---"
     $PYTHON train.py \
