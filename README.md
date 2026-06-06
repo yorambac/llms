@@ -54,16 +54,11 @@ nohup python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 \
 
 ## Current Step
 
-**H100 MFU re-sweep in progress** (as of 2026-06-06)
+**Two hero runs active** (as of 2026-06-06)
 
 ### Remote — H100 SXM (middle_plum_parrotfish)
 
-Previous sweep [40,48,56,64] found b=40 as winner — but b=40 was at the left edge so the true optimum was unknown. Hero run stopped. Running extended sweep [8,16,24,32] to close the question (b=40 = 157,017 tok/s already measured). Will re-run LR ladder at winning batch, then relaunch hero run.
-
-**Plan:**
-1. MFU sweep [8, 16, 24, 32] — combine with existing b=40 result → `results/mfu_profile_h200.csv`
-2. If winner ≠ b=40: re-run LR ladder at winning batch
-3. Launch hero run with validated config
+MFU sweep complete (full range [8–64] covered). **b=40 confirmed as true peak** at 157k tok/s. LR ladder at b=40 already done (winner 1.9e-3). Hero run launching with validated config.
 
 ### Local — RTX 4070
 
@@ -201,16 +196,20 @@ MFU profiled on H200 SXM (140 GB VRAM) for the 0.45B config (n_embd=1408, n_head
 
 ### H100 MFU sweep (RunPod, 0.45B model)
 
-H100 SXM has less HBM bandwidth than H200 (3.35 vs 4.8 TB/s), so the throughput plateau shifts left — smaller batches become optimal. Swept b=[40,48,56,64] ctx=1024. MFU% computed against H100 SXM dense bf16 peak (989 TFLOPS).
+H100 SXM has less HBM bandwidth than H200 (3.35 vs 4.8 TB/s). Full sweep [8,16,24,32,40,48,56,64] run to confirm true peak on both sides. MFU% against H100 SXM dense bf16 peak (989 TFLOPS).
 
-| Batch | Tok/s | MFU% | Notes |
-|-------|-------|------|-------|
-| **40** | **157,017** | **43.1%** | ← peak |
-| 48 | slower | — | |
-| 56 | slower | — | |
-| 64 | slower | — | fits exactly at 80 GB |
+| Batch | Tok/s | MFU% (dense) | VRAM |
+|-------|-------|--------------|------|
+| 8 | 141,243 | 38.8% | 14.9 GB |
+| 16 | 145,823 | 40.1% | 24.9 GB |
+| 24 | 151,632 | 41.7% | 34.0 GB |
+| 32 | 151,417 | 41.6% | 43.2 GB |
+| **40** | **157,017** | **43.1%** | **48.5 GB** ← peak |
+| 48 | 154,134 | 42.3% | 61.6 GB |
+| 56 | 153,952 | 42.2% | 70.8 GB |
+| 64 | 154,022 | 42.3% | 80.0 GB |
 
-**Selected H100 config: batch=40, ctx=1024.** Plateau shifts left vs H200 — larger batches don't help due to lower HBM bandwidth.
+**Selected H100 config: batch=40.** Clear peak — b=24–32 plateau at ~151k, b=40 jumps to 157k, b=48+ drops back to ~154k. True optimum confirmed with coverage on both sides.
 
 ### LR ladder: H200 @ batch=48
 
