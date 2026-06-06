@@ -110,6 +110,8 @@ These bugs were diagnosed using `debug_sft.py` — a minimal 200-step SFT loop t
 
 For faster training or when the local GPU is unavailable, see [`remote_run.md`](remote_run.md) for GPU comparison and cost estimates (RunPod spot H200 ~$50, done in ~12 hrs). For the step-by-step instance setup procedure (SSH key workaround, dependency install, data download, checkpoint upload), see [`inst_run_prod.md`](inst_run_prod.md).
 
+**Active remote session:** see [`remote_log.md`](remote_log.md) for the current pod status, what we're doing, and the step-by-step plan. Update this log at every significant step so sessions can be resumed without context loss.
+
 ---
 
 ## Hardware
