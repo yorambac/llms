@@ -10,64 +10,74 @@ Training a 0.25B GPT from scratch on a single RTX 4070, then instruction-tuning 
 
 ### Active pod
 
+**H200 terminated — transitioning to H100 SXM (3× cheaper, same compute).**
+
+Spin up a new RunPod **H100 SXM** spot pod. Then SSH in and follow "What we're doing" below.
+
 | Field | Value |
 |-------|-------|
-| Pod name | flexible_jade_boa |
-| GPU | NVIDIA H200 SXM, 140 GB VRAM |
-| SSH | `ssh root@157.66.255.19 -p 17530 -i ~/.ssh/id_ed25519` |
+| GPU | H100 SXM (80 GB) — spot |
 | Repo on pod | `/llms` |
+| Template | RunPod PyTorch |
+| SSH key setup | See [`inst_run_prod.md`](inst_run_prod.md) |
 
 ### What we're doing
 
-Training a 0.45B GPT (n_embd=1408, n_head=22, n_layer=16) on the H200. Steps:
+Training a 0.45B GPT (n_embd=1408, n_head=22, n_layer=16) on H100. Steps:
 
-1. **MFU sweep** — done. Optimal: batch=48, ctx=1024, 160,756 tok/s.
-2. **LR ladder** — sweep 5 LRs at 12M scale (batch=48, 200M tokens/run, ~6 min total) to find optimal LR for batch=48. Script: `run_ladders_h200.sh`. Results: `results/ladder_h200_results.csv`.
-3. **0.5B pretraining** — launch `train_500m.py` with optimal batch + LR.
+1. **MFU sweep** — done on H200 (batch=48 optimal). **Must re-run on H100** (less bandwidth → plateau may shift right). Run 4 points: `[40, 48, 56, 64]` ctx=1024. Script: `profile_mfu_h200.py` (works on any GPU). Note: b=64 may be tight (80GB limit) — if OOM, drop it.
+2. **LR ladder** — done. Winner: **lr=2.3e-3** at batch=48. No need to redo unless MFU sweep picks a different batch.
+3. **0.5B pretraining** — start fresh (step 0). Launch: `python -u train_500m.py --batch_size <N> --lr 2.3e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv`
 
-Full session log with status checklist: [`remote_log.md`](remote_log.md)
+Full session log: [`remote_log.md`](remote_log.md)
 
-### How to resume
+### How to resume on new H100 pod
 
 ```bash
-# SSH into pod
-ssh root@157.66.255.19 -p 17530 -i ~/.ssh/id_ed25519
+# 1. Clone repo
+git clone https://github.com/yorambac/llms.git /llms && cd /llms
 
-# Check what's running
-ps aux | grep python
-tail -f /tmp/ladder.log       # if ladder is running
-tail -f /tmp/train_500m.log   # if training is running
+# 2. Install deps
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 -q --break-system-packages
+pip install numpy tiktoken rich streamlit plotly pandas streamlit-autorefresh datasets -q --break-system-packages
 
-# Check latest results
-cat results/ladder_h200_results.csv
+# 3. Download data (~20 min)
+python -u prepare_data.py > /tmp/prepare_data.log 2>&1 &
+tail -f /tmp/prepare_data.log
+
+# 4. Run MFU sweep (4 points, ~5 min)
+# Edit profile_mfu_h200.py: BATCH_SIZES = [40, 48, 56, 64]
+python -u profile_mfu_h200.py
+
+# 5. Launch training with winning batch
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TORCHINDUCTOR_FX_GRAPH_CACHE=1 \
+nohup python -u train_500m.py --batch_size <N> --lr 2.3e-3 --peak_tflops 989 \
+  --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv \
+  > /tmp/train_500m.log 2>&1 &
 ```
 
 ---
 
 ## Current Step
 
-**0.5B pretraining running on H200** (as of 2026-06-06)
+**Transitioning H200 → H100 SXM** (as of 2026-06-06)
 
-MFU sweep + LR ladder complete. Confirmed config:
-- **Batch: 48**, ctx=1024 — 160,756 tok/s, 22.1% MFU
-- **LR: 2.3e-3** — consistent winner across multiple sweeps; noise-robust
+H200 was stopped after ~9,500 steps (4.5% done) — not worth downloading checkpoint, starting fresh on H100.
 
-Launch command used:
+**Next actions:**
+1. Spin up H100 SXM spot on RunPod
+2. Follow setup in "How to resume on new H100 pod" above
+3. Run 4-point MFU sweep: `[40, 48, 56, 64]`
+4. Pick winning batch, launch training with `--lr 2.3e-3 --peak_tflops 989`
+
+Known config (no need to redo LR ladder):
+- **LR: 2.3e-3** (confirmed winner, valid for any batch near 48)
+- **Peak TFLOPS for MFU calc: 989** (H100 SXM dense bf16, same as H200)
+
+Monitor locally:
 ```bash
-cd /llms
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-TORCHINDUCTOR_FX_GRAPH_CACHE=1 \
-nohup python -u train_500m.py --batch_size 48 --lr 2.3e-3 > /tmp/train_500m.log 2>&1 &
-```
-
-Monitor locally with the remote dashboard:
-```bash
-streamlit run dashboard_remote_app.py --server.port 8503
-```
-
-Check live log:
-```bash
-ssh root@157.66.255.19 -p 17530 -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.log"
+# Update SSH details in dashboard_remote_app.py after new pod is up
+/home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_remote_app.py --server.port 8503
 ```
 
 ---
