@@ -26,29 +26,26 @@ Training a 0.45B GPT (n_embd=1408, n_head=22, n_layer=16) on H100. All sweeps co
 2. **LR ladder** — done on H200 (lr=2.3e-3 @ b=48) and H100 (lr=1.9e-3 @ b=40 — linear scaling from H200 winner confirmed).
 3. **0.5B pretraining** — running. Command: `python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv`
 
-Full session log: [`remote_log.md`](remote_log.md)
-
 ### How to resume on new H100 pod
 
-```bash
-# 1. Clone repo
-git clone https://github.com/yorambac/llms.git /llms && cd /llms
+Sweeps already done — use known-good config (batch=40, lr=1.9e-3).
 
-# 2. Install deps
+```bash
+# 0. SSH key workaround (RunPod doesn't always apply keys post-creation — use web terminal):
+mkdir -p ~/.ssh && echo "ssh-ed25519 AAAA...your-key..." >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+
+# 1. Clone and install
+git clone https://github.com/yorambac/llms.git /llms && cd /llms
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 -q --break-system-packages
 pip install numpy tiktoken rich streamlit plotly pandas streamlit-autorefresh datasets -q --break-system-packages
 
-# 3. Download data (~20 min)
+# 2. Download data (~20 min)
 python -u prepare_data.py > /tmp/prepare_data.log 2>&1 &
 tail -f /tmp/prepare_data.log
 
-# 4. Run MFU sweep (4 points, ~5 min)
-# Edit profile_mfu_h200.py: BATCH_SIZES = [40, 48, 56, 64]
-python -u profile_mfu_h200.py
-
-# 5. Launch training with winning batch
+# 3. Launch training (batch=40, lr=1.9e-3 validated on H100)
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TORCHINDUCTOR_FX_GRAPH_CACHE=1 \
-nohup python -u train_500m.py --batch_size <N> --lr 2.3e-3 --peak_tflops 989 \
+nohup python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 \
   --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv \
   > /tmp/train_500m.log 2>&1 &
 ```
@@ -84,6 +81,35 @@ ssh root@64.247.201.60 -p 12801 -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.lo
 
 ---
 
+## Completed Runs
+
+### 0.25B pretraining (train_250m.py)
+
+| Setting | Value |
+|---------|-------|
+| Architecture | n_embd=1024, n_head=16, n_layer=16, vocab=50257 |
+| Config | batch=8, ctx=1024, lr=1e-3 cosine (min 1e-4), 1% warmup |
+| Data | FineWeb sample-10BT, 5B tokens (20 TPP — Chinchilla optimal) |
+| Runtime | ~6.8 days on RTX 4070 |
+| Final val loss | 3.87 |
+| MFU | ~32% (27,944 tok/s) |
+| Checkpoint | `checkpoints/important/pretrained_250m_step610000.pt` |
+
+### SFT fine-tune on 0.25B (sft_alpaca.py)
+
+| Setting | Value |
+|---------|-------|
+| Dataset | Alpaca 52k |
+| Replay | 80% FineWeb (prevents catastrophic forgetting) |
+| Runtime | ~3.3 h on RTX 4070 |
+| Best SFT val loss | 2.968 (step 46,700) |
+| Forgetting (pretrain val Δ) | −0.02 (improved slightly) |
+| Checkpoint | `checkpoints/important/sft_alpaca_best.pt` |
+
+See [SFT Findings](#sft-findings) for full bug history and lessons.
+
+---
+
 ## Pipeline Overview
 
 The full process to go from random weights to a chat-capable model:
@@ -98,7 +124,7 @@ The full process to go from random weights to a chat-capable model:
 | 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~1.5 h |
 | 6 | `instruct_app.py` | Serve the instruction-tuned model (task + input fields) | — |
 
-Monitoring dashboards: `dashboard_app.py` (0.25B pretraining) · `dashboard_500m_app.py` (0.5B local run) · `sft_dashboard_app.py` (SFT) · `dashboard_remote_app.py` (H200 remote run — fetches live data from pod via SSH)  
+Monitoring dashboards: `dashboard_app.py` (0.25B pretraining) · `dashboard_500m_app.py` (0.5B local run) · `sft_dashboard_app.py` (SFT) · `dashboard_remote_app.py` (H100 remote run — fetches live data from pod via SSH, run locally on port 8503)  
 Dataset explorer: `tutorial/alpaca_explorer.py`
 
 ### Debug / utility scripts (`debug/`)
@@ -265,9 +291,88 @@ These bugs were diagnosed using `debug_sft.py` — a minimal 200-step SFT loop t
 
 ## Running on a Cloud GPU
 
-For faster training or when the local GPU is unavailable, see [`remote_run.md`](remote_run.md) for GPU comparison and cost estimates (RunPod spot H200 ~$50, done in ~12 hrs). For the step-by-step instance setup procedure (SSH key workaround, dependency install, data download, checkpoint upload), see [`inst_run_prod.md`](inst_run_prod.md).
+RunPod spot H100 SXM is the best value for this model size. Setup takes ~30 min.
 
-**Active remote session:** see [`remote_log.md`](remote_log.md) for the current pod status, what we're doing, and the step-by-step plan. Update this log at every significant step so sessions can be resumed without context loss.
+### GPU options
+
+| GPU | $/hr (spot) | Dense bf16 TFLOPS | HBM bandwidth | Time (10.4B tok) | Total |
+|-----|------------|------------------|---------------|-----------------|-------|
+| RTX 4090 (Vast.ai) | $0.14–0.39 | ~330 | ~1 TB/s | ~4.5 days | ~$20–40 |
+| **H100 SXM (RunPod)** | **$3.29** | **989** | **3.35 TB/s** | **~18 h** | **~$59** |
+| H200 SXM (RunPod) | $4.39 | 989 | 4.8 TB/s | ~18 h | ~$79 |
+| B200 SXM (RunPod) | $5.89 | ~1,800 | 8.0 TB/s | ~10 h | ~$59 |
+
+H100 and H200 have **identical compute** — the only difference is HBM bandwidth (+43% for H200), which shifts the MFU-optimal batch size slightly. Throughput difference for 0.45B at batch=40–48 is <3%; H100 saves ~25%.
+
+### Pod setup (per fresh pod)
+
+#### 1. SSH key (RunPod workaround)
+
+RunPod doesn't always apply SSH keys added after pod creation. Paste your key via the **web terminal** on the pod page:
+
+```bash
+mkdir -p ~/.ssh && echo "ssh-ed25519 AAAA...your-key... yorambac@gmail.com" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+```
+
+Then from local: `ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no`
+
+#### 2. Clone repo and install deps
+
+```bash
+git clone https://github.com/yorambac/llms.git /llms && cd /llms
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 -q --break-system-packages
+pip install numpy tiktoken rich streamlit plotly pandas streamlit-autorefresh datasets -q --break-system-packages
+```
+
+`--break-system-packages` is required because RunPod uses a system-managed Python.
+
+#### 3. Download FineWeb data (~20 min)
+
+```bash
+python -u prepare_data.py > /tmp/prepare_data.log 2>&1 &
+tail -f /tmp/prepare_data.log
+```
+
+#### 4. Launch training
+
+Use the validated config for the GPU type (see MFU and LR ladder tables in [0.5B Pretraining](#05b-pretraining)):
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TORCHINDUCTOR_FX_GRAPH_CACHE=1 \
+nohup python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 \
+  --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv \
+  > /tmp/train_500m.log 2>&1 &
+tail -f /tmp/train_500m.log
+```
+
+First compile takes ~1–5 min. `TORCHINDUCTOR_FX_GRAPH_CACHE=1` caches compiled kernels — subsequent restarts skip compilation entirely.
+
+#### 5. Monitor from local machine
+
+```bash
+# Live log
+ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.log"
+
+# GPU stats
+ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519 \
+  "nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader"
+
+# Latest val loss
+ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519 "tail -3 /llms/results/run_h100.csv"
+```
+
+Or run the local Streamlit dashboard (fetches from pod via SSH):
+```bash
+/home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_remote_app.py --server.port 8503
+```
+
+### On spot interruption
+
+1. Deploy new pod (same GPU type)
+2. Repeat SSH key setup
+3. Steps 2–3 above (data download can be skipped with a persistent volume)
+4. Launch with same args — auto-resumes from last checkpoint
+   Max data loss: ~1,000 steps × 40,960 tok/step ≈ 41M tokens (~4 min at 157k tok/s)
 
 ---
 
