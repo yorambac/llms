@@ -126,15 +126,32 @@ The full process to go from random weights to a chat-capable model:
 | Step | Script | What it does | Time |
 |------|--------|-------------|------|
 | 1 | `prepare_data.py` | Download & tokenize FineWeb → `data/train.bin`, `data/val.bin` | ~20 min |
-| 2 | `run_ladders.sh` | LR sweep at 0.01B scale to find best learning rate | ~50 min |
-| 3 | `profile_mfu.py` | Sweep batch/ctx configs to find max MFU on this GPU | ~10 min |
+| 2 | `run_ladders.sh` | LR sweep at 0.01B scale (local) to find best learning rate | ~50 min |
+| 2b | `run_ladders_h200.sh` | LR ladder at full 0.45B scale (cloud) — sweeps 200M tokens per LR | ~10–30 min |
+| 3 | `profile_mfu.py` | MFU sweep (local RTX 4070) — batch × ctx to find max throughput | ~10 min |
+| 3b | `profile_mfu_h100.py` | MFU sweep (cloud H100) — batch sweep to find optimal throughput | ~5 min |
 | 4a | `train_250m.py` | Pretrain 0.25B GPT on 5B tokens (Chinchilla optimal) | ~6.8 days |
-| 4b | `train_500m.py` | Pretrain 0.5B GPT on 11.5B tokens (23 TPP) | ~9 days |
+| 4b | `train_500m.py` | Pretrain 0.45B GPT on 10.4B tokens (23 TPP); CLI args: `--batch_size`, `--lr`, `--peak_tflops`, `--ckpt_dir`, `--results_file` | ~9 days local / ~18h H100 |
 | 5 | `sft_alpaca.py` | SFT fine-tune on Alpaca 52k for instruction following | ~1.5 h |
 | 6 | `instruct_app.py` | Serve the instruction-tuned model (task + input fields) | — |
 
-Monitoring dashboards: `dashboard_app.py` (0.25B pretraining) · `dashboard_500m_app.py` (0.5B local run) · `sft_dashboard_app.py` (SFT) · `dashboard_remote_app.py` (H100 remote run — fetches live data from pod via SSH, run locally on port 8503)  
+**Monitoring dashboards:**
+
+| Dashboard | Script | Port | Tracks |
+|-----------|--------|------|--------|
+| 0.25B pretraining | `dashboard_app.py` | 8501 | Local `train_250m.py` run |
+| 0.45B local run | `dashboard_500m_app.py` | 8502 | Local `train_500m.py` run |
+| 0.45B remote run | `dashboard_remote_app.py` | 8503 | H100 pod via SSH (run locally) |
+| SFT | `sft_dashboard_app.py` | — | `sft_alpaca.py` run |
+
 Dataset explorer: `tutorial/alpaca_explorer.py`
+
+### Root-level utility scripts
+
+| Script | Purpose |
+|--------|---------|
+| `profile_mfu_h100.py` | MFU sweep for cloud H100 — finds optimal batch size; MFU% against H100 dense bf16 peak (989 TFLOPS) |
+| `run_ladders_h200.sh` | LR ladder at 0.45B scale on cloud GPU — 200M tokens per LR, auto-clears checkpoints between runs |
 
 ### Debug / utility scripts (`debug/`)
 
@@ -142,7 +159,7 @@ Dataset explorer: `tutorial/alpaca_explorer.py`
 |--------|---------|
 | `debug_sft.py` | Minimal 200-step SFT loop with per-step `gen_ok_pct` checks and top-5 token probability logging. Used to diagnose the Alpaca `\n` collapse bug. |
 | `eval_sft.py` | Evaluates a checkpoint on N Alpaca examples: reports % empty responses, avg word count, shows sample outputs. |
-| `profile_mfu.py` | Sweeps batch × context × architecture configs to find optimal MFU on the GPU. |
+| `profile_mfu.py` | MFU sweep for local RTX 4070 — batch × context × architecture configs. |
 | `profile_dashboard.py` | Terminal dashboard for MFU profiling results. |
 | `dashboard_250m.py` | Terminal (Rich) training dashboard — superseded by `dashboard_app.py` (Streamlit). |
 | `dashboard.py` | Earlier terminal dashboard prototype — superseded. |
