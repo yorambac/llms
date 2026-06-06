@@ -108,7 +108,7 @@ These bugs were diagnosed using `debug_sft.py` — a minimal 200-step SFT loop t
 
 ## Running on a Cloud GPU
 
-For faster training or when the local GPU is unavailable, see [`remote_run.md`](remote_run.md) for a step-by-step guide to running on a RunPod spot H100 (~$25–30 for a typical 0.45B run, done in ~19 hours vs 7+ days locally). VSCode Remote SSH makes the remote workflow identical to local.
+For faster training or when the local GPU is unavailable, see [`remote_run.md`](remote_run.md) for GPU comparison and cost estimates (RunPod spot H200 ~$50, done in ~12 hrs). For the step-by-step instance setup procedure (SSH key workaround, dependency install, data download, checkpoint upload), see [`inst_run_prod.md`](inst_run_prod.md).
 
 ---
 
