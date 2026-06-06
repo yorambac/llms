@@ -2,7 +2,7 @@
 Stream FineWeb sample-10BT from HuggingFace, tokenise with GPT-2 tokenizer,
 and save train/val splits as flat uint16 binary files.
 
-Target: ~10.02B tokens total (10B train, 20M val).
+Target: ~10.52B tokens total (10.5B train, 20M val). Uses sample-100BT to avoid cycling.
 Usage: python prepare_data.py
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 import time
 from tqdm import tqdm
 
-TRAIN_TOKENS = 10_000_000_000
+TRAIN_TOKENS = 10_500_000_000
 VAL_TOKENS   =    20_000_000
 TOTAL_TARGET = TRAIN_TOKENS + VAL_TOKENS
 DATA_DIR     = Path(__file__).parent / "data"
@@ -36,7 +36,7 @@ def main():
     print(f"Streaming FineWeb sample-10BT (target {TOTAL_TARGET/1e6:.0f}M tokens)...")
     ds = load_dataset(
         "HuggingFaceFW/fineweb",
-        name="sample-10BT",
+        name="sample-100BT",
         split="train",
         streaming=True,
     )
