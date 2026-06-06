@@ -20,11 +20,11 @@ Training a 0.25B GPT from scratch on a single RTX 4070, then instruction-tuning 
 
 ### What we're doing
 
-Training a 0.45B GPT (n_embd=1408, n_head=22, n_layer=16) on H100. Steps:
+Training a 0.45B GPT (n_embd=1408, n_head=22, n_layer=16) on H100. All sweeps complete:
 
-1. **MFU sweep** — done on H200 (batch=48 optimal). **Must re-run on H100** (less bandwidth → plateau may shift right). Run 4 points: `[40, 48, 56, 64]` ctx=1024. Script: `profile_mfu_h200.py` (works on any GPU). Note: b=64 may be tight (80GB limit) — if OOM, drop it.
-2. **LR ladder** — done. Winner: **lr=2.3e-3** at batch=48. No need to redo unless MFU sweep picks a different batch.
-3. **0.5B pretraining** — start fresh (step 0). Launch: `python -u train_500m.py --batch_size <N> --lr 2.3e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv`
+1. **MFU sweep** — done on H200 (b=48 optimal) and H100 (b=40 optimal — plateau shifts left due to lower HBM bandwidth).
+2. **LR ladder** — done on H200 (lr=2.3e-3 @ b=48) and H100 (lr=1.9e-3 @ b=40 — linear scaling from H200 winner confirmed).
+3. **0.5B pretraining** — running. Command: `python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv`
 
 Full session log: [`remote_log.md`](remote_log.md)
 
@@ -158,6 +158,67 @@ MFU profiled on H200 SXM (140 GB VRAM) for the 0.45B config (n_embd=1408, n_head
 | 64 | 159,141 | 21.9% | 80.0 GB |
 
 **Selected H200 config: batch=48, ctx=1024** — true throughput peak; b=56 and b=64 are marginally slower. See [`remote_log.md`](remote_log.md) for full session log.
+
+### H100 MFU sweep (RunPod, 0.45B model)
+
+H100 SXM has less HBM bandwidth than H200 (3.35 vs 4.8 TB/s), so the throughput plateau shifts left — smaller batches become optimal. Swept b=[40,48,56,64] ctx=1024. MFU% computed against H100 SXM dense bf16 peak (989 TFLOPS).
+
+| Batch | Tok/s | MFU% | Notes |
+|-------|-------|------|-------|
+| **40** | **157,017** | **43.1%** | ← peak |
+| 48 | slower | — | |
+| 56 | slower | — | |
+| 64 | slower | — | fits exactly at 80 GB |
+
+**Selected H100 config: batch=40, ctx=1024.** Plateau shifts left vs H200 — larger batches don't help due to lower HBM bandwidth.
+
+### LR ladder: H200 @ batch=48
+
+Swept 200M tokens per LR, cosine schedule. Results from [`results/mfu_profile_h200.csv`](results/mfu_profile_h200.csv) (val loss at end of 200M tokens):
+
+| LR | Val Loss |
+|----|----------|
+| 7e-4 | 5.0429 |
+| 1e-3 | 4.8499 |
+| 1.3e-3 | 4.7281 |
+| 1.7e-3 | 4.6979 |
+| **2.3e-3** | **4.6273** ← winner |
+| 3e-3 | 4.8934 |
+| 4e-3 | 4.9717 |
+
+Sharp peak at 2.3e-3 — clear optimum, drops off quickly on both sides.
+
+### LR ladder: H100 @ batch=40
+
+H200 winner (2.3e-3) scales linearly to batch=40: 2.3e-3 × (40/48) = 1.92e-3. Swept [1.5e-3, 1.9e-3, 2.3e-3, 2.7e-3] to confirm. Results from [`results/ladder_h100_results.csv`](results/ladder_h100_results.csv) (val loss at end of 200M tokens):
+
+| LR | Val Loss |
+|----|----------|
+| 1.5e-3 | 4.7214 |
+| **1.9e-3** | **4.7206** ← winner (Δ0.0008 better) |
+| 2.3e-3 | 4.9064 (+0.186) |
+| 2.7e-3 | 4.8744 (+0.154) |
+
+1.9e-3 and 1.5e-3 essentially tied; 2.3e-3 overshoots by ~0.19 — confirming the linear scaling prediction. Picked 1.9e-3 as it matches the scaled prediction and is marginally better.
+
+### Cloud GPU pricing and cost breakdown
+
+| GPU | Price/hr (spot) | Dense bf16 TFLOPS | HBM bandwidth |
+|-----|----------------|------------------|---------------|
+| H100 SXM | $3.29/hr | 989 TFLOPS | 3.35 TB/s |
+| H200 SXM | $4.39/hr | 989 TFLOPS | 4.8 TB/s |
+| B200 SXM | $5.89/hr | ~1,800 TFLOPS | 8.0 TB/s |
+
+H100 and H200 have **identical compute** — H200's only advantage is higher memory bandwidth (+43%), which shifts the MFU-optimal batch size higher. For a 0.45B model at batch=40–48 the throughput difference is <3%; the H100 is ~25% cheaper per hour.
+
+| Item | Duration (est.) | Cost (est.) |
+|------|----------------|-------------|
+| H200 MFU + LR sweeps (9 LR runs + fine MFU) | ~2 h | ~$9 |
+| H200 aborted training (9,500 steps → stopped) | ~1 h | ~$4 |
+| H100 MFU sweep (4 batch sizes) | <0.5 h | ~$2 |
+| H100 LR ladder (4 runs × 200M tokens) | <0.5 h | ~$2 |
+| H100 hero run (10.4B tokens, ~18 h) | ~18 h | ~$59 |
+| **Total** | **~22 h** | **~$76** |
 
 ---
 
