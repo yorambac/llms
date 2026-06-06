@@ -50,7 +50,7 @@ After completing the 0.25B run, a second pretraining run was planned at 0.5B sca
 | 0.4B (n_embd=1408, n_layer=14) | 405M | 8 | 18,311 | 38.2% | 9.33 GB |
 | **0.5B (n_embd=1408, n_layer=18)** | **501M** | **6** | **14,879** | **38.3%** | **9.30 GB** |
 
-**Selected config for 0.5B run:**
+**Selected config for 0.5B run (local RTX 4070):**
 
 | Setting | Value | Reason |
 |---------|-------|--------|
@@ -62,6 +62,20 @@ After completing the 0.25B run, a second pretraining run was planned at 0.5B sca
 | Tokens | **11.5B** | 23 × 501M params |
 | MFU | **~38%** | 14,879 tok/s |
 | Estimated runtime | **~9 days** | 11.5B tokens @ 14.9k tok/s |
+
+### H200 MFU sweep (RunPod, 0.45B model)
+
+MFU profiled on H200 SXM (140 GB VRAM) for the 0.45B config (n_embd=1408, n_head=22, n_layer=16). Coarse sweep + fine-sweep b=[40,48,56] to find the true peak. MFU% computed against H200 SXM sparse bf16 peak (1979 TFLOPS).
+
+| Batch | Tok/s | MFU% | VRAM |
+|-------|-------|------|------|
+| 32 | 157,134 | 21.6% | 43.2 GB |
+| 40 | 158,855 | 21.8% | 48.5 GB |
+| **48** | **160,756** | **22.1%** | **61.6 GB** ← peak |
+| 56 | 159,536 | 21.9% | 70.8 GB |
+| 64 | 159,141 | 21.9% | 80.0 GB |
+
+**Selected H200 config: batch=48, ctx=1024** — true throughput peak; b=56 and b=64 are marginally slower. See [`remote_log.md`](remote_log.md) for full session log.
 
 ---
 

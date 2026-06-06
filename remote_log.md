@@ -47,13 +47,25 @@ b=32 and b=64 are already in the results CSV — no need to repeat them. Only th
 5. **Update README and this log** with the winning config.
 6. **Launch 0.5B pretraining** with the optimal batch.
 
+### Fine-sweep results (combined with existing data)
+
+| Batch | Tok/s | MFU% | VRAM |
+|-------|-------|------|------|
+| 32 | 157,134 | 21.6% | 43.2 GB |
+| 40 | 158,855 | 21.8% | 48.5 GB |
+| **48** | **160,756** | **22.1%** | **61.6 GB** ← peak |
+| 56 | 159,536 | 21.9% | 70.8 GB |
+| 64 | 159,141 | 21.9% | 80.0 GB |
+
+**Winner: batch=48** — actual peak, not just a plateau. b=56 and b=64 are slightly slower (kernel scheduling overhead). 61.6 GB VRAM, comfortable headroom on H200.
+
 ### Status
 
 - [x] Coarse sweep complete (b ∈ {8,16,32,64,128}, ctx ∈ {1024,2048})
-- [ ] Fine-sweep script updated (b ∈ {40,48,56}, ctx=1024 only)
-- [ ] Fine sweep run on H200
-- [ ] Optimal batch selected
-- [ ] README updated with final config
+- [x] Fine-sweep script updated (b ∈ {40,48,56}, ctx=1024 only)
+- [x] Fine sweep run on H200
+- [x] Optimal batch selected: **b=48**, 160,756 tok/s, 22.1% MFU
+- [ ] README updated with final H200 config
 - [ ] 0.5B pretraining launched
 
 ---
@@ -66,3 +78,4 @@ b=32 and b=64 are already in the results CSV — no need to repeat them. Only th
 - Repo is clean and up to date with `origin/main`.
 - Read coarse MFU sweep results — plateau observed at b=32→64.
 - Created this log and planned the fine-sweep.
+- Ran fine-sweep b=[40,48,56] ctx=1024. **b=48 is the true peak** at 160,756 tok/s / 22.1% MFU / 61.6 GB VRAM.
