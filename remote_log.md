@@ -8,10 +8,11 @@ Chronological log of what we're doing on the RunPod H200 pod. Updated at every s
 
 | Field | Value |
 |-------|-------|
-| Pod name | flexible_jade_boa |
-| GPU | NVIDIA H200 SXM, 140 GB VRAM |
-| SSH | `ssh root@157.66.255.19 -p 17530 -i ~/.ssh/id_ed25519` |
-| Status | **Active** |
+| Pod name | middle_plum_parrotfish |
+| GPU | NVIDIA H100 SXM, 80 GB VRAM |
+| SSH | `ssh root@64.247.201.60 -p 12801 -i ~/.ssh/id_ed25519` |
+| Price | ~$3.29/hr spot |
+| Status | **Active — setting up** |
 
 ---
 

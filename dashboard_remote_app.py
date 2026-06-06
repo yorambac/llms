@@ -19,8 +19,8 @@ from streamlit_autorefresh import st_autorefresh
 
 # ── Remote pod config ───────────────────────────────────────────────────────
 
-SSH_HOST    = "157.66.255.19"
-SSH_PORT    = "17530"
+SSH_HOST    = "64.247.201.60"
+SSH_PORT    = "12801"
 SSH_KEY     = "~/.ssh/id_ed25519"
 SSH_USER    = "root"
 REMOTE_DIR  = "/llms"

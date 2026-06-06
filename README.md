@@ -10,16 +10,13 @@ Training a 0.25B GPT from scratch on a single RTX 4070, then instruction-tuning 
 
 ### Active pod
 
-**H200 terminated — transitioning to H100 SXM (3× cheaper, same compute).**
-
-Spin up a new RunPod **H100 SXM** spot pod. Then SSH in and follow "What we're doing" below.
-
 | Field | Value |
 |-------|-------|
-| GPU | H100 SXM (80 GB) — spot |
+| Pod name | middle_plum_parrotfish |
+| GPU | NVIDIA H100 SXM, 80 GB VRAM |
+| SSH | `ssh root@64.247.201.60 -p 12801 -i ~/.ssh/id_ed25519` |
 | Repo on pod | `/llms` |
-| Template | RunPod PyTorch |
-| SSH key setup | See [`inst_run_prod.md`](inst_run_prod.md) |
+| Price | ~$3.29/hr spot |
 
 ### What we're doing
 
