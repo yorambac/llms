@@ -59,14 +59,27 @@ b=32 and b=64 are already in the results CSV — no need to repeat them. Only th
 
 **Winner: batch=48** — actual peak, not just a plateau. b=56 and b=64 are slightly slower (kernel scheduling overhead). 61.6 GB VRAM, comfortable headroom on H200.
 
+### LR ladder results (batch=48, 200M tokens/run)
+
+| LR | Val Loss |
+|----|----------|
+| 7e-4 | 5.0429 |
+| 1e-3 | 4.8499 |
+| 1.3e-3 | 4.7281 |
+| 1.7e-3 | 4.6979 |
+| **2.3e-3** | **4.6273** ← winner |
+| 3e-3 | 4.8934 |
+| 4e-3 | 4.9717 |
+
+Sharp peak at 2.3e-3. Curve descends from 7e-4 to 2.3e-3 then shoots back up — clear optimum.
+
 ### Status
 
-- [x] Coarse sweep complete (b ∈ {8,16,32,64,128}, ctx ∈ {1024,2048})
-- [x] Fine-sweep script updated (b ∈ {40,48,56}, ctx=1024 only)
-- [x] Fine sweep run on H200
-- [x] Optimal batch selected: **b=48**, 160,756 tok/s, 22.1% MFU
-- [ ] README updated with final H200 config
-- [ ] 0.5B pretraining launched
+- [x] Coarse MFU sweep complete (b ∈ {8,16,32,64,128}, ctx ∈ {1024,2048})
+- [x] Fine MFU sweep complete (b ∈ {40,48,56}): optimal **b=48**, 160,756 tok/s
+- [x] LR ladder complete: optimal **lr=2.3e-3** at batch=48
+- [ ] Update train_500m.py with batch=48, lr=2.3e-3
+- [ ] Launch 0.5B pretraining on H200
 
 ---
 
@@ -77,5 +90,5 @@ b=32 and b=64 are already in the results CSV — no need to repeat them. Only th
 - Confirmed pod `flexible_jade_boa` is live; GPU idle, no training running.
 - Repo is clean and up to date with `origin/main`.
 - Read coarse MFU sweep results — plateau observed at b=32→64.
-- Created this log and planned the fine-sweep.
-- Ran fine-sweep b=[40,48,56] ctx=1024. **b=48 is the true peak** at 160,756 tok/s / 22.1% MFU / 61.6 GB VRAM.
+- Ran fine MFU sweep b=[40,48,56] ctx=1024. **b=48 is the true peak** at 160,756 tok/s / 22.1% MFU / 61.6 GB VRAM.
+- Ran LR ladder [7e-4, 1e-3, 1.3e-3, 1.7e-3, 2.3e-3, 3e-3, 4e-3] at batch=48, 200M tokens/run. **lr=2.3e-3 is the winner** — sharp peak, drops off quickly above and below.

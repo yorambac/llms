@@ -46,17 +46,21 @@ cat results/ladder_h200_results.csv
 
 ## Current Step
 
-**Running H200 LR ladder** (as of 2026-06-06)
+**Ready to launch 0.5B pretraining on H200** (as of 2026-06-06)
+
+MFU sweep and LR ladder complete:
+- **Batch: 48**, ctx=1024 — 160,756 tok/s, 22.1% MFU
+- **LR: 2.3e-3** — sharp peak in ladder [7e-4 … 4e-3], drops off quickly above/below
+
+Next: update `train_500m.py` with these values and launch:
 
 ```bash
-cd /llms && bash run_ladders_h200.sh
+# On pod
+cd /llms && git pull
+# Edit train_500m.py: BATCH_SIZE=48, LR=2.3e-3
+nohup python -u train_500m.py > /tmp/train_500m.log 2>&1 &
+tail -f /tmp/train_500m.log
 ```
-
-Sweeps LRs `[7e-4, 1e-3, 1.3e-3, 1.7e-3, 2.3e-3]` at batch=48, ctx=1024, 200M tokens/run (~6 min total).
-Expected winner: ~1.3e-3 (linear scaling from batch=32 ladder winner lr=1e-3).
-Results: `results/ladder_h200_results.csv`
-
-Next: update `train_500m.py` with winning LR + batch=48, launch pretraining.
 
 ---
 
