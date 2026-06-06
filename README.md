@@ -54,18 +54,16 @@ nohup python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 \
 
 ## Current Step
 
-**Two hero runs active** (as of 2026-06-06)
+**H100 MFU re-sweep in progress** (as of 2026-06-06)
 
 ### Remote — H100 SXM (middle_plum_parrotfish)
 
-Step ~3,000 / 253,906 · val loss 4.52 · 158k tok/s · 43% MFU · ETA ~18h · ~$59 total
+Previous sweep [40,48,56,64] found b=40 as winner — but b=40 was at the left edge so the true optimum was unknown. Hero run stopped. Running extended sweep [8,16,24,32] to close the question (b=40 = 157,017 tok/s already measured). Will re-run LR ladder at winning batch, then relaunch hero run.
 
-| Setting | Value |
-|---------|-------|
-| Batch / LR | 40 / 1.9e-3 (validated by H100 MFU + LR sweeps) |
-| Total tokens | 10.4B — 253,906 steps |
-| Checkpoint dir | `checkpoints/run_h100` |
-| Results CSV | `results/run_h100.csv` (on pod) |
+**Plan:**
+1. MFU sweep [8, 16, 24, 32] — combine with existing b=40 result → `results/mfu_profile_h200.csv`
+2. If winner ≠ b=40: re-run LR ladder at winning batch
+3. Launch hero run with validated config
 
 ### Local — RTX 4070
 
