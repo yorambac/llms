@@ -84,7 +84,8 @@ Sharp peak at 2.3e-3. Curve descends from 7e-4 to 2.3e-3 then shoots back up —
 - [x] H200 terminated after 9,500 steps — not worth keeping (same compute as H100, 3× cheaper)
 - [x] Spin up H100 SXM spot ($3.29/hr) — pod: middle_plum_parrotfish
 - [x] 4-point MFU sweep on H100: batch=40 wins at 157,017 tok/s (plateau shifts left vs H200 due to less bandwidth)
-- [x] 0.5B pretraining launched: --batch_size 40 --lr 2.3e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv
+- [x] LR re-sweep at batch=40: [1.5e-3, 1.9e-3, 2.3e-3, 2.7e-3] — 1.5e-3 and 1.9e-3 tied (Δ0.0002), 2.3e-3 clearly too high. Picked **1.9e-3** (linear scaling prediction).
+- [x] 0.5B pretraining launched: --batch_size 40 --lr 1.9e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv
 
 ---
 
