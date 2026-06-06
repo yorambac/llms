@@ -1,9 +1,9 @@
 """
-MFU profiling sweep for the 0.45B model on H200.
+MFU profiling sweep for the 0.45B model on H100.
 Sweeps batch size and context length to find optimal throughput.
 Runs 50 warmup + 100 timed steps per config — no data needed.
 
-Usage: python profile_mfu_h200.py
+Usage: python profile_mfu_h100.py
 Results: results/mfu_profile_h200.csv
 """
 
