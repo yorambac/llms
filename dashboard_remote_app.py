@@ -35,10 +35,10 @@ SSH_BASE = [
 
 # ── Training config (must match train_500m.py) ──────────────────────────────
 
-MAX_LR          = 2.3e-3
-MIN_LR          = 2.3e-4
+MAX_LR          = 1.9e-3
+MIN_LR          = 1.9e-4
 MAX_TOKENS      = 10_400_000_000
-BATCH_SIZE      = 48
+BATCH_SIZE      = 40
 BLOCK_SIZE      = 1024
 TOKENS_PER_STEP = BATCH_SIZE * BLOCK_SIZE
 TOTAL_STEPS     = MAX_TOKENS // TOKENS_PER_STEP
