@@ -126,7 +126,7 @@ def main():
     results_path.parent.mkdir(exist_ok=True)
 
     arch = ARCH
-    print(f"\nProfiling {arch['label']} on H200")
+    print(f"\nProfiling {arch['label']} on H100")
     print(f"{'Batch':>6} {'Ctx':>5} {'Params':>8}  {'Tok/s':>10} {'MFU%':>6} {'VRAM':>8}")
     print("─" * 55)
 

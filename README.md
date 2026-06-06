@@ -69,13 +69,21 @@ Both previous runs were stopped. Root cause: `prepare_data.py` had `TRAIN_TOKENS
 
 ### Local — RTX 4070
 
-**MFU sweep in progress** (`profile_mfu_local.py`) — finding optimal batch size for 0.45B (n_layer=16) on RTX 4070 before relaunching hero run. Previous run (batch=4, defaults) was stopped due to data cycling bug.
+**MFU sweep complete** — batch=4 is optimal (14,238 tok/s, 33.2% MFU, 10.6GB VRAM). batch=6+ OOMs.
+
+**LR ladder running** — 4 LRs × 200M tokens each (~16h total). Results: `results/ladder_local_results.csv`
+
+| Setting | Value |
+|---------|-------|
+| LRs tested | 2e-4, 5e-4, 1e-3, 2e-3 |
+| Batch / ctx | 4 / 1024 |
+| Tokens per run | 200M (~3.9h each) |
+| Prediction | sqrt-scale from H100 winner → ~6e-4 |
 
 ```bash
-python -u profile_mfu_local.py
+# Resume monitoring
+tail -f /tmp/ladder_local.log
 ```
-
-Results: `results/mfu_profile_local.csv`
 
 ### Dashboards
 

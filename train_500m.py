@@ -200,7 +200,9 @@ def main():
     parser.add_argument("--ckpt_dir", type=str, default=None)
     parser.add_argument("--results_file", type=str, default=None)
     parser.add_argument("--peak_tflops", type=float, default=116.6,
-                        help="GPU peak bf16 dense TFLOPS for MFU calc (default: RTX 4070=116.6, H200=989)")
+                        help="GPU peak bf16 dense TFLOPS for MFU calc (default: RTX 4070=116.6, H100=989)")
+    parser.add_argument("--max_tokens", type=int, default=None,
+                        help="Override MAX_TOKENS (useful for short ladder runs)")
     args = parser.parse_args()
 
     batch_size   = args.batch_size
@@ -209,6 +211,7 @@ def main():
     ckpt_dir     = Path(args.ckpt_dir) if args.ckpt_dir else CKPT_DIR
     results_file = Path(args.results_file) if args.results_file else RESULTS_FILE
     peak_tflops  = args.peak_tflops * 1e12
+    max_tokens   = args.max_tokens if args.max_tokens else MAX_TOKENS
 
     device = "cuda"
     torch.set_float32_matmul_precision("high")
@@ -239,7 +242,7 @@ def main():
         model = torch.compile(model)
 
     tokens_per_step = batch_size * BLOCK_SIZE
-    total_steps     = MAX_TOKENS // tokens_per_step
+    total_steps     = max_tokens // tokens_per_step
     warmup_steps    = total_steps // 100
 
     console.rule(f"[bold green]Training  steps={total_steps:,}  tok/step={tokens_per_step:,}  "
