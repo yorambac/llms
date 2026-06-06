@@ -1,5 +1,5 @@
 """
-REMOTE H200 Training Dashboard — tracks the 0.45B run on the RunPod H200 pod.
+REMOTE H100 Training Dashboard — tracks the 0.45B run on the RunPod H100 pod.
 Fetches results/run_500m.csv and GPU stats from the pod via SSH every 15s.
 
 Run locally:
@@ -48,7 +48,7 @@ N_PARAMS        = 452.9e6
 # ── Page setup ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="REMOTE · H200 Training Dashboard",
+    page_title="REMOTE · H100 Training Dashboard",
     page_icon="🛰",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -139,7 +139,7 @@ st.divider()
 
 # ── Progress row ─────────────────────────────────────────────────────────────
 
-st.subheader("Training Progress · 0.45B  (23 TPP · 10.4B tokens · ~18 hrs on H200)")
+st.subheader("Training Progress · 0.45B  (23 TPP · 10.4B tokens · ~18 hrs on H100)")
 
 if df.empty:
     st.info("Waiting for training to start… (results/run_500m.csv not found on pod)")
@@ -289,4 +289,4 @@ if not df.empty and len(df) > 1:
 else:
     st.info("No data yet.")
 
-st.caption("Auto-refreshes every 15s · REMOTE H200 pod · llm_train 0.45B run")
+st.caption("Auto-refreshes every 15s · REMOTE H100 pod · llm_train 0.45B run")
