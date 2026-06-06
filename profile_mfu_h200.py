@@ -84,7 +84,7 @@ BLOCK_SIZES  = [1024]
 VOCAB_SIZE   = 50257
 WARMUP_STEPS = 50
 TIMED_STEPS  = 100
-PEAK_BF16    = 1979e12  # H200 SXM sparse bf16 TFLOPS
+PEAK_BF16    = 989e12   # H100 SXM dense bf16 TFLOPS
 
 # ── Profiler ───────────────────────────────────────────────────────────────
 
