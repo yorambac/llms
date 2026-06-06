@@ -2,6 +2,64 @@
 
 Training a 0.25B GPT from scratch on a single RTX 4070, then instruction-tuning it with SFT.
 
+---
+
+## New Session Info
+
+**If the Claude session dies, here's everything needed to resume.**
+
+### Active pod
+
+| Field | Value |
+|-------|-------|
+| Pod name | flexible_jade_boa |
+| GPU | NVIDIA H200 SXM, 140 GB VRAM |
+| SSH | `ssh root@157.66.255.19 -p 17530 -i ~/.ssh/id_ed25519` |
+| Repo on pod | `/llms` |
+
+### What we're doing
+
+Training a 0.45B GPT (n_embd=1408, n_head=22, n_layer=16) on the H200. Steps:
+
+1. **MFU sweep** — done. Optimal: batch=48, ctx=1024, 160,756 tok/s.
+2. **LR ladder** — sweep 5 LRs at 12M scale (batch=48, 200M tokens/run, ~6 min total) to find optimal LR for batch=48. Script: `run_ladders_h200.sh`. Results: `results/ladder_h200_results.csv`.
+3. **0.5B pretraining** — launch `train_500m.py` with optimal batch + LR.
+
+Full session log with status checklist: [`remote_log.md`](remote_log.md)
+
+### How to resume
+
+```bash
+# SSH into pod
+ssh root@157.66.255.19 -p 17530 -i ~/.ssh/id_ed25519
+
+# Check what's running
+ps aux | grep python
+tail -f /tmp/ladder.log       # if ladder is running
+tail -f /tmp/train_500m.log   # if training is running
+
+# Check latest results
+cat results/ladder_h200_results.csv
+```
+
+---
+
+## Current Step
+
+**Running H200 LR ladder** (as of 2026-06-06)
+
+```bash
+cd /llms && bash run_ladders_h200.sh
+```
+
+Sweeps LRs `[7e-4, 1e-3, 1.3e-3, 1.7e-3, 2.3e-3]` at batch=48, ctx=1024, 200M tokens/run (~6 min total).
+Expected winner: ~1.3e-3 (linear scaling from batch=32 ladder winner lr=1e-3).
+Results: `results/ladder_h200_results.csv`
+
+Next: update `train_500m.py` with winning LR + batch=48, launch pretraining.
+
+---
+
 ## Pipeline Overview
 
 The full process to go from random weights to a chat-capable model:
