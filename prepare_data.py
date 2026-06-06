@@ -1,8 +1,11 @@
 """
-Stream FineWeb sample-10BT from HuggingFace, tokenise with GPT-2 tokenizer,
+Stream FineWeb sample-100BT from HuggingFace, tokenise with GPT-2 tokenizer,
 and save train/val splits as flat uint16 binary files.
 
 Target: ~10.52B tokens total (10.5B train, 20M val). Uses sample-100BT to avoid cycling.
+Writes directly to memmap — constant RAM usage regardless of dataset size.
+Supports resume: if partial files exist, continues from where it left off.
+
 Usage: python prepare_data.py
 """
 
@@ -20,20 +23,47 @@ TOTAL_TARGET = TRAIN_TOKENS + VAL_TOKENS
 DATA_DIR     = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-TRAIN_FILE = DATA_DIR / "train.bin"
-VAL_FILE   = DATA_DIR / "val.bin"
+TRAIN_FILE   = DATA_DIR / "train.bin"
+VAL_FILE     = DATA_DIR / "val.bin"
+PROGRESS_FILE = DATA_DIR / "prepare_progress.txt"
+
+
+def read_progress():
+    if PROGRESS_FILE.exists():
+        parts = PROGRESS_FILE.read_text().strip().split()
+        return int(parts[0]), int(parts[1])  # val_pos, train_pos
+    return 0, 0
+
+
+def write_progress(val_pos, train_pos):
+    PROGRESS_FILE.write_text(f"{val_pos} {train_pos}\n")
+
 
 def main():
     if TRAIN_FILE.exists() and VAL_FILE.exists():
         train_sz = TRAIN_FILE.stat().st_size // 2
         val_sz   = VAL_FILE.stat().st_size // 2
-        print(f"Data already prepared: train={train_sz:,} tokens, val={val_sz:,} tokens")
-        return
+        if train_sz >= TRAIN_TOKENS and val_sz >= VAL_TOKENS:
+            print(f"Data already prepared: train={train_sz:,} tokens, val={val_sz:,} tokens")
+            return
 
     enc = tiktoken.get_encoding("gpt2")
     eot = enc._special_tokens["<|endoftext|>"]
 
-    print(f"Streaming FineWeb sample-10BT (target {TOTAL_TARGET/1e6:.0f}M tokens)...")
+    val_pos, train_pos = read_progress()
+    resuming = val_pos > 0 or train_pos > 0
+    if resuming:
+        print(f"Resuming: val={val_pos:,} train={train_pos:,} tokens already written")
+    else:
+        print(f"Streaming FineWeb sample-100BT (target {TOTAL_TARGET/1e6:.0f}M tokens)...")
+
+    # Pre-allocate memmap files (or open existing ones)
+    val_mm   = np.memmap(VAL_FILE,   dtype=np.uint16, mode='r+' if VAL_FILE.exists()   else 'w+', shape=(VAL_TOKENS,))
+    train_mm = np.memmap(TRAIN_FILE, dtype=np.uint16, mode='r+' if TRAIN_FILE.exists() else 'w+', shape=(TRAIN_TOKENS,))
+
+    already_done = val_pos + train_pos
+    t0 = time.time()
+
     ds = load_dataset(
         "HuggingFaceFW/fineweb",
         name="sample-100BT",
@@ -41,39 +71,66 @@ def main():
         streaming=True,
     )
 
-    train_buf, val_buf = [], []
-    train_count = val_count = 0
-    t0 = time.time()
+    # Skip already-processed docs by skipping tokens (approximate via skip)
+    # For resume: just fast-forward the iterator token count
+    skipped = 0
+    if resuming:
+        print(f"Fast-forwarding through {already_done/1e9:.2f}B already-tokenised tokens...")
 
     with tqdm(total=TOTAL_TARGET, unit="tok", unit_scale=True,
-              desc="Tokenising FineWeb", dynamic_ncols=True) as pbar:
+              desc="Tokenising FineWeb", dynamic_ncols=True,
+              initial=already_done) as pbar:
         for doc in ds:
-            if train_count + val_count >= TOTAL_TARGET:
-                break
-
             ids = enc.encode_ordinary(doc["text"])
             ids.append(eot)
+            n = len(ids)
 
-            if val_count < VAL_TOKENS:
-                val_buf.extend(ids)
-                val_count += len(ids)
-            else:
-                train_buf.extend(ids)
-                train_count += len(ids)
+            # Fast-forward: skip docs already tokenised
+            if skipped + n <= already_done:
+                skipped += n
+                continue
+            # Partial overlap at resume boundary
+            if skipped < already_done:
+                ids = ids[already_done - skipped:]
+                skipped = already_done
 
-            pbar.update(len(ids))
+            arr = np.array(ids, dtype=np.uint16)
+
+            # Fill val first
+            if val_pos < VAL_TOKENS:
+                take = min(len(arr), VAL_TOKENS - val_pos)
+                val_mm[val_pos:val_pos + take] = arr[:take]
+                val_pos += take
+                arr = arr[take:]
+                if val_pos == VAL_TOKENS:
+                    val_mm.flush()
+
+            # Then train
+            if len(arr) > 0 and train_pos < TRAIN_TOKENS:
+                take = min(len(arr), TRAIN_TOKENS - train_pos)
+                train_mm[train_pos:train_pos + take] = arr[:take]
+                train_pos += take
+
+            pbar.update(n)
             elapsed = time.time() - t0
             if elapsed > 0:
-                pbar.set_postfix({"tok/s": f"{(train_count+val_count)/elapsed/1e6:.2f}M"})
+                pbar.set_postfix({"tok/s": f"{(val_pos + train_pos - already_done)/elapsed/1e6:.2f}M"})
 
-    print(f"Saving {train_count/1e6:.1f}M train tokens -> {TRAIN_FILE}")
-    np.array(train_buf[:TRAIN_TOKENS], dtype=np.uint16).tofile(TRAIN_FILE)
+            # Flush + save progress every 500M tokens
+            if (val_pos + train_pos) % 500_000_000 < n:
+                train_mm.flush()
+                write_progress(val_pos, train_pos)
 
-    print(f"Saving {val_count/1e6:.1f}M val tokens -> {VAL_FILE}")
-    np.array(val_buf[:VAL_TOKENS], dtype=np.uint16).tofile(VAL_FILE)
+            if val_pos >= VAL_TOKENS and train_pos >= TRAIN_TOKENS:
+                break
 
-    print(f"Done in {time.time()-t0:.0f}s")
-    os._exit(0)  # avoid HF datasets GIL crash on finalization
+    train_mm.flush()
+    val_mm.flush()
+    write_progress(val_pos, train_pos)
+
+    print(f"Done: {train_pos/1e9:.2f}B train tokens, {val_pos/1e6:.0f}M val tokens")
+    print(f"Elapsed: {time.time()-t0:.0f}s")
+    os._exit(0)
 
 
 if __name__ == "__main__":
