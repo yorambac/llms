@@ -77,6 +77,8 @@ def main():
     if resuming:
         print(f"Fast-forwarding through {already_done/1e9:.2f}B already-tokenised tokens...")
 
+    last_print = t0
+
     with tqdm(total=TOTAL_TARGET, unit="tok", unit_scale=True,
               desc="Tokenising FineWeb", dynamic_ncols=True,
               initial=already_done) as pbar:
@@ -113,8 +115,17 @@ def main():
 
             pbar.update(n)
             elapsed = time.time() - t0
-            if elapsed > 0:
-                pbar.set_postfix({"tok/s": f"{(val_pos + train_pos - already_done)/elapsed/1e6:.2f}M"})
+
+            # Print clean status line every 60s (readable in log when tqdm → /dev/null)
+            now = time.time()
+            if now - last_print >= 60:
+                total_done = val_pos + train_pos
+                pct = total_done / TOTAL_TARGET * 100
+                rate = (total_done - already_done) / elapsed / 1e6 if elapsed > 0 else 0
+                eta_s = (TOTAL_TARGET - total_done) / (rate * 1e6) if rate > 0 else 0
+                print(f"[prepare] {pct:.1f}%  {total_done/1e9:.2f}B/{TOTAL_TARGET/1e9:.1f}B tok  "
+                      f"{rate:.2f}M tok/s  ETA {eta_s/60:.0f}min", flush=True)
+                last_print = now
 
             # Flush + save progress every 500M tokens
             if (val_pos + train_pos) % 500_000_000 < n:
