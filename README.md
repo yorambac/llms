@@ -54,38 +54,39 @@ nohup python -u train_500m.py --batch_size 40 --lr 1.9e-3 --peak_tflops 989 \
 
 ## Current Step
 
-**Two hero runs active** (as of 2026-06-06)
+**Status as of 2026-06-06**
 
-### Remote — H100 SXM (middle_plum_parrotfish)
+### Bug fixed: data cycling
 
-MFU sweep complete (full range [8–64] covered). **b=40 confirmed as true peak** at 157k tok/s. LR ladder at b=40 already done (winner 1.9e-3). Hero run launching with validated config.
+Both previous runs were stopped. Root cause: `prepare_data.py` had `TRAIN_TOKENS=200M`, causing the model to cycle through the same 200M tokens ~52 times → memorisation → val loss plateau. Fixed: now uses FineWeb `sample-100BT` with `TRAIN_TOKENS=10.5B` (covers 23 TPP with headroom).
+
+### Remote — H100 SXM
+
+- **Data prep running** on pod (`/workspace/llm_train`). ETA ~80 min. Training auto-launches after data is ready.
+- Pod SSH: `ssh root@64.247.201.60 -p 18346 -i ~/.ssh/id_ed25519`
+- Logs: `/tmp/prepare_data.log`, then `/tmp/train_500m.log`
+- Config: batch=40, lr=1.9e-3, 10.4B tokens, ~18h
 
 ### Local — RTX 4070
 
-Step ~635,000 / 2,539,062 · **25% done** · val loss ~4.7 · 13k tok/s · elapsed ~45h · ETA ~7 days
+**MFU sweep in progress** (`profile_mfu_local.py`) — finding optimal batch size for 0.45B (n_layer=16) on RTX 4070 before relaunching hero run. Previous run (batch=4, defaults) was stopped due to data cycling bug.
 
-| Setting | Value |
-|---------|-------|
-| Batch / LR | 4 / 1e-3 (local defaults) |
-| Total tokens | 10.4B — 2,539,062 steps |
-| Checkpoint dir | `checkpoints/run_500m` |
-| Results CSV | `results/run_500m.csv` |
+```bash
+python -u profile_mfu_local.py
+```
+
+Results: `results/mfu_profile_local.csv`
 
 ### Dashboards
 
 ```bash
-# Local run (RTX 4070) — http://localhost:8502
-/home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_500m_app.py --server.port 8502
-
 # Remote run (H100) — http://localhost:8503
 /home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_remote_app.py --server.port 8503
 ```
 
-Both dashboards can run simultaneously. The remote one fetches data via SSH every 15s — no action needed on the pod.
-
 ```bash
 # Live log from H100 pod
-ssh root@64.247.201.60 -p 12801 -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.log"
+ssh root@64.247.201.60 -p 18346 -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.log"
 ```
 
 ---
@@ -273,8 +274,8 @@ H100 and H200 have **identical compute** — H200's only advantage is higher mem
 | H200 aborted training (9,500 steps → stopped) | ~1 h | ~$4 |
 | H100 MFU sweep (4 batch sizes) | <0.5 h | ~$2 |
 | H100 LR ladder (4 runs × 200M tokens) | <0.5 h | ~$2 |
-| H100 hero run (10.4B tokens, ~18 h) | ~18 h | ~$59 |
-| **Total** | **~22 h** | **~$76** |
+| H100 hero run (10.4B tokens, ~18.6 h @ 155k tok/s actual) | ~18.6 h | ~$61 |
+| **Total** | **~22.6 h** | **~$78** |
 
 ---
 
@@ -328,8 +329,8 @@ RunPod spot H100 SXM is the best value for this model size. Setup takes ~30 min.
 | GPU | $/hr (spot) | Dense bf16 TFLOPS | HBM bandwidth | Time (10.4B tok) | Total |
 |-----|------------|------------------|---------------|-----------------|-------|
 | RTX 4090 (Vast.ai) | $0.14–0.39 | ~330 | ~1 TB/s | ~4.5 days | ~$20–40 |
-| **H100 SXM (RunPod)** | **$3.29** | **989** | **3.35 TB/s** | **~18 h** | **~$59** |
-| H200 SXM (RunPod) | $4.39 | 989 | 4.8 TB/s | ~18 h | ~$79 |
+| **H100 SXM (RunPod)** | **$3.29** | **989** | **3.35 TB/s** | **~18.6 h** | **~$61** |
+| H200 SXM (RunPod) | $4.39 | 989 | 4.8 TB/s | ~17.9 h | ~$79 |
 | B200 SXM (RunPod) | $5.89 | ~1,800 | 8.0 TB/s | ~10 h | ~$59 |
 
 H100 and H200 have **identical compute** — the only difference is HBM bandwidth (+43% for H200), which shifts the MFU-optimal batch size slightly. Throughput difference for 0.45B at batch=40–48 is <3%; H100 saves ~25%.
