@@ -57,24 +57,21 @@ nohup python -u train_500m.py --batch_size <N> --lr 2.3e-3 --peak_tflops 989 \
 
 ## Current Step
 
-**Transitioning H200 → H100 SXM** (as of 2026-06-06)
+**H100 pod up — setting up, then MFU sweep** (as of 2026-06-06)
 
-H200 was stopped after ~9,500 steps (4.5% done) — not worth downloading checkpoint, starting fresh on H100.
+Pod `middle_plum_parrotfish` is live. Data download running (~20 min). Once done:
 
-**Next actions:**
-1. Spin up H100 SXM spot on RunPod
-2. Follow setup in "How to resume on new H100 pod" above
-3. Run 4-point MFU sweep: `[40, 48, 56, 64]`
-4. Pick winning batch, launch training with `--lr 2.3e-3 --peak_tflops 989`
+1. **MFU sweep** — 4 points `[40, 48, 56, 64]` ctx=1024 (~5 min). H100 has less memory bandwidth than H200 so optimal batch may shift right. Script: `profile_mfu_h200.py`.
+2. **Launch training** — `python -u train_500m.py --batch_size <winner> --lr 2.3e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv`
 
-Known config (no need to redo LR ladder):
-- **LR: 2.3e-3** (confirmed winner, valid for any batch near 48)
-- **Peak TFLOPS for MFU calc: 989** (H100 SXM dense bf16, same as H200)
+Known (no re-sweep needed):
+- **LR: 2.3e-3** — confirmed winner on H200, valid for any batch near 48
+- **Peak TFLOPS: 989** — H100 SXM dense bf16 (same as H200)
 
 Monitor locally:
 ```bash
-# Update SSH details in dashboard_remote_app.py after new pod is up
 /home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_remote_app.py --server.port 8503
+# → http://localhost:8503
 ```
 
 ---
