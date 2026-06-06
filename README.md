@@ -57,21 +57,28 @@ nohup python -u train_500m.py --batch_size <N> --lr 2.3e-3 --peak_tflops 989 \
 
 ## Current Step
 
-**H100 pod up — setting up, then MFU sweep** (as of 2026-06-06)
+**0.5B pretraining running on H100 SXM** (as of 2026-06-06)
 
-Pod `middle_plum_parrotfish` is live. Data download running (~20 min). Once done:
+MFU sweep complete — H100 optimal batch is **40** (157,017 tok/s). Plateau shifts left vs H200 (less memory bandwidth). Training launched fresh from step 0.
 
-1. **MFU sweep** — 4 points `[40, 48, 56, 64]` ctx=1024 (~5 min). H100 has less memory bandwidth than H200 so optimal batch may shift right. Script: `profile_mfu_h200.py`.
-2. **Launch training** — `python -u train_500m.py --batch_size <winner> --lr 2.3e-3 --peak_tflops 989 --ckpt_dir checkpoints/run_h100 --results_file results/run_h100.csv`
-
-Known (no re-sweep needed):
-- **LR: 2.3e-3** — confirmed winner on H200, valid for any batch near 48
-- **Peak TFLOPS: 989** — H100 SXM dense bf16 (same as H200)
+| Setting | Value |
+|---------|-------|
+| Batch | 40 |
+| LR | 2.3e-3 |
+| Total tokens | 10.4B (253,906 steps) |
+| Est. throughput | ~157k tok/s |
+| Est. runtime | ~18h |
+| Est. cost | ~$59 |
 
 Monitor locally:
 ```bash
 /home/yoram/miniconda3/envs/llm_train/bin/streamlit run dashboard_remote_app.py --server.port 8503
 # → http://localhost:8503
+```
+
+Check log:
+```bash
+ssh root@64.247.201.60 -p 12801 -i ~/.ssh/id_ed25519 "tail -f /tmp/train_500m.log"
 ```
 
 ---
