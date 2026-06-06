@@ -16,22 +16,23 @@ set -e
 cd "$(dirname "$0")"
 
 PYTHON=python
-BATCH=${BATCH:-64}
+BATCH=${BATCH:-96}
 CTX=1024
-MAX_TOKENS=1_000_000_000   # 1B tokens per run
+MAX_TOKENS=400_000_000     # 400M tokens per run (~2 min each on H200)
 RESULTS=results/ladder_h200_results.csv
 
 export TORCHINDUCTOR_FX_GRAPH_CACHE=1
 
 echo "=== H200 LR ladder sweep ==="
 echo "    batch=$BATCH  ctx=$CTX  tokens_per_run=$MAX_TOKENS"
-echo "    LRs: [3e-4, 5e-4, 8e-4, 1e-3, 1.5e-3, 2e-3, 3e-3]"
+echo "    LRs: [8e-4, 1.2e-3, 1.7e-3, 2.3e-3, 3e-3]"
+echo "    (centered around expected optimal ~1.7e-3 from sqrt(96/32) scaling)"
 echo ""
 
 # Wipe old results so we get a clean CSV
 rm -f "$RESULTS"
 
-for LR in 3e-4 5e-4 8e-4 1e-3 1.5e-3 2e-3 3e-3; do
+for LR in 8e-4 1.2e-3 1.7e-3 2.3e-3 3e-3; do
     RUN_NAME="lr${LR}"
     echo "--- $RUN_NAME ---"
     $PYTHON train.py \
