@@ -199,6 +199,8 @@ def main():
     parser.add_argument("--lr", type=float, default=MAX_LR)
     parser.add_argument("--ckpt_dir", type=str, default=None)
     parser.add_argument("--results_file", type=str, default=None)
+    parser.add_argument("--peak_tflops", type=float, default=116.6,
+                        help="GPU peak bf16 dense TFLOPS for MFU calc (default: RTX 4070=116.6, H200=989)")
     args = parser.parse_args()
 
     batch_size   = args.batch_size
@@ -206,6 +208,7 @@ def main():
     min_lr       = max_lr / 10
     ckpt_dir     = Path(args.ckpt_dir) if args.ckpt_dir else CKPT_DIR
     results_file = Path(args.results_file) if args.results_file else RESULTS_FILE
+    peak_tflops  = args.peak_tflops * 1e12
 
     device = "cuda"
     torch.set_float32_matmul_precision("high")
@@ -321,7 +324,7 @@ def main():
                     last_val_loss = sum(vlosses) / len(vlosses)
                     raw = model.module if hasattr(model, "module") else model
                     raw = getattr(raw, "_orig_mod", raw)
-                    last_mfu_pct = mfu(raw, tps) * 100
+                    last_mfu_pct = mfu(raw, tps, peak=peak_tflops) * 100
 
                     writer.writerow(dict(
                         step=step, total_steps=total_steps,
