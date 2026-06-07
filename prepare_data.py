@@ -40,17 +40,14 @@ def write_progress(val_pos, train_pos):
 
 
 def main():
-    if TRAIN_FILE.exists() and VAL_FILE.exists():
-        train_sz = TRAIN_FILE.stat().st_size // 2
-        val_sz   = VAL_FILE.stat().st_size // 2
-        if train_sz >= TRAIN_TOKENS and val_sz >= VAL_TOKENS:
-            print(f"Data already prepared: train={train_sz:,} tokens, val={val_sz:,} tokens")
-            return
+    val_pos, train_pos = read_progress()
+    if train_pos >= TRAIN_TOKENS and val_pos >= VAL_TOKENS:
+        print(f"Data already prepared: train={train_pos:,} tokens, val={val_pos:,} tokens")
+        return
 
     enc = tiktoken.get_encoding("gpt2")
     eot = enc._special_tokens["<|endoftext|>"]
 
-    val_pos, train_pos = read_progress()
     resuming = val_pos > 0 or train_pos > 0
     if resuming:
         print(f"Resuming: val={val_pos:,} train={train_pos:,} tokens already written")
